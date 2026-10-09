@@ -8,17 +8,19 @@
     "name": "Jannis Braun",
     "email": "backspace@backspace.chat"
   },
-  "homepage": "https://github.com/TheZwiss/backspace",
+  "homepage": "https://github.com/lorxray/backspace-revork",
   "main": "dist/main.js",
   "desktopName": "io.github.TheZwiss.backspace.desktop",
   "scripts": {
-    "build:ts": "tsc",
-    "dev": "tsc && electron .",
-    "build": "tsc && electron-builder",
-    "build:all": "tsc && electron-builder --mac --win --linux --arm64 --x64",
+    "build:ts": "tsc && node scripts/buildMicrophoneGatePreload.cjs",
+    "dev": "pnpm run build:ts && electron .",
+    "build": "pnpm run build:ts && electron-builder",
+    "build:portable": "pnpm run build:ts && corepack enable --install-directory node_modules/.bin pnpm && electron-builder --win portable --x64 --publish never",
+    "build:all": "pnpm run build:ts && electron-builder --mac --win --linux --arm64 --x64",
     "clean": "rm -rf dist dist-electron",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:microphone-gate": "pnpm run build:ts && electron scripts/testMicrophoneGate.cjs",
     "postinstall": "electron-rebuild -f -w uiohook-napi || node -e \"console.warn('[desktop] uiohook-napi native rebuild skipped - needs build tools (make, g++, python3). Only required to RUN the desktop app; the server, web client, and Docker image are unaffected.')\""
   },
   "dependencies": {
@@ -31,6 +33,7 @@
     "@electron/rebuild": "^4.2.0",
     "electron": "^43.7.5",
     "electron-builder": "^26.15.3",
+    "jsdom": "^28.1.0",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
   }

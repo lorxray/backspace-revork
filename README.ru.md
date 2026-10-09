@@ -2,14 +2,14 @@
 
 <img src="packages/web/public/icons/logo.png" alt="Backspace" width="160" />
 
-# Backspace
+# Backspace Revork
 
 **Платформа для общения, которую вы держите у себя. Текст, голос, видео и федерация.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-3da639.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-24_LTS-339933.svg)](https://nodejs.org/)
-[![Release](https://img.shields.io/github/v/release/TheZwiss/backspace?color=16a34a&label=release)](https://github.com/TheZwiss/backspace/releases)
+[![Release](https://img.shields.io/github/v/release/lorxray/backspace-revork?color=16a34a&label=release)](https://github.com/lorxray/backspace-revork/releases)
 [![CodeQL](https://github.com/TheZwiss/backspace/actions/workflows/codeql.yml/badge.svg)](https://github.com/TheZwiss/backspace/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/TheZwiss/backspace/badge)](https://scorecard.dev/viewer/?uri=github.com/TheZwiss/backspace)
 [![Security policy](https://img.shields.io/badge/security-policy-blue.svg)](SECURITY.md)
@@ -17,6 +17,14 @@
 [English](README.md) · **Русский**
 
 </div>
+
+Форк [TheZwiss/Backspace](https://github.com/TheZwiss/backspace) с дополнительными возможностями настольного клиента, работающими без изменений сервера:
+
+- Масштабирование и перемещение изображения при просмотре трансляции.
+- Настраиваемый порог срабатывания микрофона, индикатор уровня звука и локальное сохранение настройки.
+- Portable-версия для Windows x64 в разделе [Releases](https://github.com/lorxray/backspace-revork/releases/latest).
+
+История исходного проекта, указание авторства и лицензия AGPL-3.0 сохранены. Ниже находится документация исходной платформы; изменения настольного клиента описаны в [desktop.md](docs/systems/desktop.md).
 
 ---
 

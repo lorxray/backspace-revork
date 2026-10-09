@@ -210,9 +210,9 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @backspace/shared build
 
-      - name: Compile desktop TypeScript
+      - name: Compile desktop and generate sandbox preload
         working-directory: packages/desktop
-        run: pnpm exec tsc
+        run: pnpm run build:ts
 
       - name: Build and publish desktop app
         working-directory: packages/desktop

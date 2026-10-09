@@ -2,14 +2,14 @@
 
 <img src="packages/web/public/icons/logo.png" alt="Backspace" width="160" />
 
-# Backspace
+# Backspace Revork
 
 **A self-hosted communication platform you own. Text, voice, video, and federation.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-3da639.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-24_LTS-339933.svg)](https://nodejs.org/)
-[![Release](https://img.shields.io/github/v/release/TheZwiss/backspace?color=16a34a&label=release)](https://github.com/TheZwiss/backspace/releases)
+[![Release](https://img.shields.io/github/v/release/lorxray/backspace-revork?color=16a34a&label=release)](https://github.com/lorxray/backspace-revork/releases)
 [![CodeQL](https://github.com/TheZwiss/backspace/actions/workflows/codeql.yml/badge.svg)](https://github.com/TheZwiss/backspace/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/TheZwiss/backspace/badge)](https://scorecard.dev/viewer/?uri=github.com/TheZwiss/backspace)
 [![Security policy](https://img.shields.io/badge/security-policy-blue.svg)](SECURITY.md)
@@ -17,6 +17,14 @@
 **English** · [Русский](README.ru.md)
 
 </div>
+
+This fork of [TheZwiss/Backspace](https://github.com/TheZwiss/backspace) adds desktop features that work with existing instances without server changes:
+
+- Stream zoom and panning in the focused stream viewer.
+- A configurable microphone activation threshold with a live level meter, local settings and background audio processing.
+- A Windows x64 portable build, available from [Releases](https://github.com/lorxray/backspace-revork/releases/latest).
+
+The original project history, author attribution and AGPL-3.0 license are preserved. The documentation below describes the upstream platform; fork-specific desktop behavior is documented in [desktop.md](docs/systems/desktop.md).
 
 ---
 

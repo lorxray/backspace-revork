@@ -3,6 +3,7 @@
 Source files:
 - `packages/desktop/src/main.ts` — Main process: window management, tray, IPC handlers, auto-update, deep links, app lifecycle
 - `packages/desktop/src/preload.ts` — Context bridge: exposes `window.backspace` API to renderer
+- `packages/desktop/src/streamZoom.ts` — Packaged DOM adapter for focused screen-share viewer zoom
 - `packages/desktop/src/updateCapability.ts` — Signature probe: can this build install its own updates
 - `packages/desktop/src/updateStatus.ts` — Update status union, store, and the shared prompt predicate
 - `packages/desktop/src/updateDismissal.ts` — Per-version dismissal persisted to userData
@@ -852,6 +853,39 @@ For full screen share configuration (resolution, bitrate, codec), see `voice.md`
 
 ---
 
+## Viewer Stream Zoom
+
+`streamZoom.ts` adds 100–400% zoom to a focused, watched screen-share tile
+in the Electron renderer. The mouse wheel zooms around the cursor, + / −
+buttons zoom around the center, dragging pans the enlarged image, and
+clicking the percentage restores 100%. The adapter uses the existing video
+element, leaving its LiveKit attachment and stream subscription unchanged.
+
+The main process injects this bundled script on `dom-ready` into a dedicated
+isolated world. It observes renderer DOM changes to follow stream focus,
+watch state, and navigation without changes to the instance's web client
+or API. `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`
+remain enabled. Browser sessions keep the existing viewer behavior.
+
+`build:ts` compiles the adapter into `dist/`; electron-builder's `dist/**/*`
+file rule includes it in every desktop package, including Windows portable
+EXEs. Rebuilding the desktop app is sufficient to distribute viewer zoom;
+the server does not need an update for this feature.
+
+Compatibility detection uses the existing `stream-tile-caption`, its direct
+video sibling, and the focused wrapper's Grid button. Cameras, chat videos,
+grid thumbnails, and a server-provided zoom viewport are excluded. Controls
+live in a Shadow DOM; the adapter never reparents the video or assigns its
+`srcObject`. Source and video-track changes reset zoom, while viewport and
+video-resolution changes only reclamp pan. Coordinates honor root CSS zoom.
+
+Build Windows x64 portable from the repository root with
+`corepack pnpm --filter @backspace/desktop build:portable`. The output is
+`packages/desktop/dist-electron/Backspace-<version>-portable-x64.exe`;
+this command does not publish artifacts.
+
+---
+
 ## Cache Clearing
 
 On every app launch (`app.whenReady`), the main process purges stale caches:
@@ -1356,7 +1390,7 @@ output: dist-electron
 | Platform | Formats |
 |----------|---------|
 | macOS | dmg (no zip: Squirrel.Mac auto-update needs a Developer ID first) |
-| Windows | nsis, one installer per architecture (allows custom install dir) |
+| Windows | nsis, one installer per architecture (allows custom install dir); optional x64 portable |
 | Linux | AppImage, deb |
 
 ### Build Commands
@@ -1364,8 +1398,16 @@ output: dist-electron
 | Command | Description |
 |---------|-------------|
 | `pnpm build` | TypeScript compile + electron-builder (current platform) |
+| `corepack pnpm build:portable` | Windows x64 portable EXE, without publishing |
 | `pnpm build:all` | Cross-platform: `--mac --win --linux --arm64 --x64` |
 | `pnpm dev` | Compile TypeScript + launch Electron (with icon setup) |
+
+`build:portable` enables Corepack's pnpm shims in the desktop package's
+`node_modules/.bin` before packaging. electron-builder invokes `pnpm` directly
+to collect production dependencies, even when the build was started with
+`corepack pnpm`; without a shim on PATH this fails with `No JSON content found
+in output`. The local shim uses the repository's pinned pnpm version, needs no
+administrator privileges, and leaves the system PATH unchanged.
 
 ### Native Module Handling
 
@@ -1489,6 +1531,18 @@ Earlier builds wrote to `<appData>/@backspace/desktop/`. On first launch after t
 | `games-cache-etag.txt` | ETag string | For conditional HTTP requests |
 
 ---
+
+## Desktop Microphone Activation Threshold
+
+The app supplies an optional microphone noise gate in **User Settings → Voice & Video**, immediately after input volume. The switch starts off; the slider ranges from −80 to −10 dBFS (default −50). Settings stay in the instance origin's localStorage under `backspace-desktop-microphone-gate`; no API, database or instance web assets need updating.
+
+`scripts/buildMicrophoneGatePreload.cjs` runs after TypeScript compilation and generates a standalone sandbox preload. The preload installs the self-contained `microphoneGate.ts` adapter in the page's main world before page scripts run, then installs `microphoneGateControls.ts` when the DOM is ready. Only microphone `getUserMedia` tracks are marked; camera-only requests, display capture and remote audio stay on their original paths. The adapter keeps the original capture stream, tracks, source node and `onended` handlers. It routes the source's connections through a bundled AudioWorklet and observes native track stops/ends and context closure to release its own graph. Disconnect/reconnect during RNNoise changes retains the gate.
+
+The dedicated `backspace-microphone-gate://audio/processor.js` protocol serves only the fixed processor from `microphoneGateProcessor.ts`. Its CSP exemption is restricted to that local scheme: the handler rejects every other URL and never reads a requested filesystem path or forwards requests. Sandbox, context isolation and the instance's own CSP remain enabled. `microphoneGateProtocol.ts` and its tests define the resource boundary.
+
+The processor measures 10 ms RMS windows, uses a 10 ms lookahead, 5 ms attack, 200 ms hold, 80 ms release and 3 dB hysteresis. Disabled mode passes samples through without added delay. Processing runs in the audio rendering thread so hidden-window timer throttling does not affect it. If loading or processing fails, the original microphone audio continues and the settings display a warning.
+
+`pnpm --filter @backspace/desktop test:microphone-gate` checks the shipped preload and real AudioWorklet in a hidden Electron window, with fake capture devices and both header/meta CSP matching existing instances. It verifies actual PCM suppression/pass-through, local settings, background level updates and capture release. Test artifacts go under `tests/.tmp/microphone-gate-electron/`, outside packaged files.
 
 ## App Lifecycle Summary
 

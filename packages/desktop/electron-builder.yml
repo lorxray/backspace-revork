@@ -37,8 +37,8 @@ npmRebuild: false
 afterPack: ./scripts/afterPack.js
 publish:
   - provider: github
-    owner: TheZwiss
-    repo: backspace
+    owner: lorxray
+    repo: backspace-revork
 protocols:
   - name: Backspace
     schemes:
@@ -86,3 +86,5 @@ nsis:
   # the per-arch file by process.arch, and the Desktop tab in the web client
   # picks by client hint, so the combined installer had no reader left.
   buildUniversalInstaller: false
+portable:
+  artifactName: "${productName}-${version}-portable-${arch}.${ext}"

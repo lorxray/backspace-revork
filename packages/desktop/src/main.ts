@@ -9,6 +9,7 @@ import {
   shell,
   screen,
   session,
+  protocol,
   desktopCapturer,
 } from 'electron';
 import path from 'path';
@@ -52,6 +53,8 @@ import {
 import { migrateUserData } from './userDataMigration';
 import { isNavigationAllowed } from './navigationPolicy';
 import { NotificationRetainer } from './notificationRetention';
+import { installStreamZoom } from './streamZoom';
+import { MICROPHONE_GATE_SCHEME, handleMicrophoneGateRequest } from './microphoneGateProtocol';
 import {
   screenSharePickerMode,
   isPendingSelectionFresh,
@@ -65,6 +68,14 @@ import { getDesktopLanguage, isDesktopLanguage, saveStoredLanguage, translateDes
 // "<appData>/Backspace" instead of leaking the monorepo's "@backspace/desktop"
 // package name. Must run before any app.getPath('userData') consumer.
 app.setName('Backspace');
+
+// Only a fixed, bundled AudioWorklet is served by this scheme. Its CSP
+// exemption lets the app add microphone processing to older instances without
+// changing their headers or granting the renderer any privileged APIs.
+protocol.registerSchemesAsPrivileged([{
+  scheme: MICROPHONE_GATE_SCHEME,
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: true },
+}]);
 
 // One-time migration from the historical scoped path. After the move the old
 // folder is gone, so subsequent launches hit the old-missing no-op branch.
@@ -92,14 +103,14 @@ let pendingDeepLink: string | null = null;
 const knownInstanceOrigins = new Set<string>();
 
 // ─── AGPL-3.0 § 13 source offer ─────────────────────────────────────────────
-// Upstream fallback for the "Source code" menu items and the About panel.
+// Desktop fork fallback for the "Source code" menu items and the About panel.
 // Used when the connected instance can't be reached or advertises no source URL.
-const UPSTREAM_SOURCE_URL = 'https://github.com/TheZwiss/backspace';
+const DESKTOP_SOURCE_URL = 'https://github.com/lorxray/backspace-revork';
 
 /**
  * Resolve the Corresponding Source URL for the instance the desktop app is
  * pointed at, honouring an operator's modified fork via GET /api/instance/info.
- * Falls back to the upstream repo when no instance is loaded or the probe fails.
+ * Falls back to the desktop fork when no instance is loaded or the probe fails.
  */
 async function resolveSourceUrl(): Promise<string> {
   let base: string | null = process.env.BACKSPACE_URL ?? loadInstanceUrl();
@@ -107,12 +118,12 @@ async function resolveSourceUrl(): Promise<string> {
     const current = mainWindow.webContents.getURL();
     if (current.startsWith('http://') || current.startsWith('https://')) base = current;
   }
-  if (!base) return UPSTREAM_SOURCE_URL;
+  if (!base) return DESKTOP_SOURCE_URL;
 
   try {
     const origin = new URL(base).origin;
     const res = await fetch(`${origin}/api/instance/info`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return UPSTREAM_SOURCE_URL;
+    if (!res.ok) return DESKTOP_SOURCE_URL;
     const info = (await res.json()) as { sourceCodeUrl?: unknown };
     if (typeof info.sourceCodeUrl === 'string' && /^https?:\/\//i.test(info.sourceCodeUrl)) {
       return info.sourceCodeUrl;
@@ -120,14 +131,14 @@ async function resolveSourceUrl(): Promise<string> {
   } catch {
     // Unreachable / malformed — fall back to upstream.
   }
-  return UPSTREAM_SOURCE_URL;
+  return DESKTOP_SOURCE_URL;
 }
 
 /** Open the resolved source URL externally; upstream fallback on any failure. */
 function openSourceCode(): void {
   resolveSourceUrl()
     .then((url) => shell.openExternal(url))
-    .catch(() => { void shell.openExternal(UPSTREAM_SOURCE_URL); });
+    .catch(() => { void shell.openExternal(DESKTOP_SOURCE_URL); });
 }
 
 // ─── Window State Persistence ───────────────────────────────────────────────
@@ -386,6 +397,17 @@ function createWindow(): void {
   setMainWindow(mainWindow);
   attachRecoveryHandlers(mainWindow);
   keybindManager.setWindow(mainWindow);
+
+  // This controller ships in the app, so older instances gain viewer zoom
+  // without changing the web client. Its world has no Electron/Node bridge.
+  const zoomWebContents = mainWindow.webContents;
+  zoomWebContents.on('dom-ready', () => {
+    void zoomWebContents.executeJavaScriptInIsolatedWorld(1004, [{
+      code: `void (${installStreamZoom.toString()})();`,
+    }]).catch((error: unknown) => {
+      if (!zoomWebContents.isDestroyed()) console.warn('[stream-zoom] Could not initialize viewer controls:', error);
+    });
+  });
 
   if (savedState.isMaximized) {
     mainWindow.maximize();
@@ -1230,6 +1252,10 @@ if (!gotTheLock) {
   // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
   app.whenReady().then(async () => {
+    session.defaultSession.protocol.handle(MICROPHONE_GATE_SCHEME, handleMicrophoneGateRequest);
+    session.defaultSession.registerPreloadScript({
+      type: 'frame', filePath: path.join(__dirname, 'microphoneGatePreload.js'),
+    });
     // Development runs inside the stock Electron.app bundle, whose Dock icon
     // macOS caches per bundle, so the copied icns in the dev script does not
     // show. Set it at runtime; packaged builds carry the icon in their own
@@ -1380,8 +1406,8 @@ if (!gotTheLock) {
     app.setAboutPanelOptions({
       applicationName: 'Backspace',
       applicationVersion: app.getVersion(),
-      copyright: `AGPL-3.0-only · Source: ${UPSTREAM_SOURCE_URL}`,
-      website: UPSTREAM_SOURCE_URL,
+      copyright: `AGPL-3.0-only · Source: ${DESKTOP_SOURCE_URL}`,
+      website: DESKTOP_SOURCE_URL,
     });
 
     // Tray + macOS app-menu actions. Defined once so the subscriber and the

@@ -541,6 +541,19 @@ Viewers: `TrackPublished` subscribes a `ScreenShareAudio` publication when the v
 
 ---
 
+## Viewer Stream Zoom
+
+The Electron app supplies viewer zoom from its packaged `streamZoom` DOM
+adapter, which operates on an existing focused, watched screen-share tile.
+It supports 100–400% zoom with the mouse wheel or + / − buttons, dragging
+to pan, and reset to 100%. The existing video element and its LiveKit track
+attachment are preserved. Updating the desktop package, including a Windows
+portable EXE, supplies the feature without a server or API update; the web
+browser keeps the existing stream viewer behavior. See
+[desktop.md](desktop.md#viewer-stream-zoom) for the integration.
+
+---
+
 ## Mobile Voice Rendering
 
 Mobile (`MobileVoiceFullScreen`) renders the **same** `VoiceGrid` component as desktop. There is no mobile-specific tile component — the rendering, attach/detach, adaptive-stream subscription, focused-publisher layout, and context menus all come from the shared `VoiceGrid` / `VoiceUser` / `StreamTile` pipeline. The only mobile-specific addition is auto-focus on the first live screen-share publication (so phone users don't have to discover tap-to-focus).
@@ -647,6 +660,12 @@ Channel switches detach the old room reference before calling `room.disconnect()
 A separate input-release generation invalidates acquisitions queued or in flight before leave. Queued jobs are skipped; a late `getUserMedia` result is stopped immediately rather than attached to the graph. A stale denial is not cached for the next call. The browser permission prompt itself cannot be cancelled. New requests after release remain valid and reuse the existing serialized acquisition chain. The mic synchronization effect checks room identity and cleanup after awaits so an abandoned effect cannot reacquire or republish after leaving.
 
 ---
+
+## Desktop Microphone Activation Threshold
+
+The desktop app can add an optional activation threshold without updating the instance's web client or server. Its bundled preload marks microphone capture tracks and adds a noise gate between their existing Web Audio source and the web client's RNNoise/gain pipeline. It preserves the original capture tracks and their stop/ended lifecycle, and does not gate camera-only capture, screen-share audio or remote participants. The `SpeakingDetector` threshold still only controls speaking indicators.
+
+The setting appears after input volume in Voice & Video, starts disabled and persists locally. The slider uses −80…−10 dBFS; moving right suppresses louder background noise. AudioWorklet processing includes lookahead and hold to avoid clipping speech boundaries, with no added latency when disabled. See [desktop.md](desktop.md#desktop-microphone-activation-threshold) for the preload, resource protocol and validation.
 
 ## Audio Device Selection (Microphone & Speakers)
 

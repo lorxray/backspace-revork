@@ -81,6 +81,9 @@ importers:
       electron-builder:
         specifier: ^26.15.3
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
+      jsdom:
+        specifier: ^28.1.0
+        version: 28.1.0(@noble/hashes@2.4.0)
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
