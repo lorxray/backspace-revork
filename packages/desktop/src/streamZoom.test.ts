@@ -153,6 +153,175 @@ describe('bundled desktop stream zoom', () => {
     expect(outside.defaultPrevented).toBe(false);
   });
 
+  it('hides idle controls after wheel zoom even when the pointer stays over the video', async () => {
+    vi.useFakeTimers();
+    const { tile, video } = stream();
+    install();
+    wheel(video, -240);
+    const host = toolbar(tile);
+    const zoomedTransform = video.style.transform;
+    expect(host.style.opacity).toBe('1');
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(host.style.opacity).toBe('1');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(host.style.opacity).toBe('0');
+    expect(host.style.pointerEvents).toBe('none');
+    expect(percentage(tile)).toBeGreaterThan(100);
+    expect(video.style.transform).toBe(zoomedTransform);
+
+    pointer(video, 'pointermove', 510, 350);
+    expect(host.style.opacity).toBe('1');
+    expect(host.style.pointerEvents).not.toBe('none');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(host.style.opacity).toBe('0');
+  });
+
+  it('restarts the idle countdown for another zoom and for reset', async () => {
+    vi.useFakeTimers();
+    const { tile, video } = stream();
+    install();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+
+    wheel(video, -240);
+    expect(toolbar(tile).style.opacity).toBe('1');
+    await vi.advanceTimersByTimeAsync(1500);
+    wheel(video, -240);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(toolbar(tile).style.opacity).toBe('1');
+
+    control(tile, 'Reset zoom').click();
+    expect(percentage(tile)).toBe(100);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(toolbar(tile).style.opacity).toBe('1');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toolbar(tile).style.opacity).toBe('0');
+  });
+
+  it('keeps hidden controls hidden when React or fullscreen refreshes the stream', async () => {
+    vi.useFakeTimers();
+    const { wrapper, tile, video } = stream();
+    wrapper.classList.add('group/voice');
+    install();
+    control(tile, 'Zoom in').click();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+
+    video.className = 'updated-video-class';
+    video.removeAttribute('style');
+    wrapper.classList.add('h-screen');
+    await vi.advanceTimersByTimeAsync(0);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    window.dispatchEvent(new Event('resize'));
+    expect(toolbar(tile).style.bottom).toBe('96px');
+    expect(toolbar(tile).style.opacity).toBe('0');
+    expect(percentage(tile)).toBe(125);
+    expect(video.style.transform).toContain('scale(1.25)');
+  });
+
+  it('holds controls visible while the pointer rests on them and hides after leaving', async () => {
+    vi.useFakeTimers();
+    const { tile } = stream();
+    install();
+    const host = toolbar(tile);
+    host.dispatchEvent(new MouseEvent('pointerenter', { composed: true }));
+    control(tile, 'Zoom in').dispatchEvent(new MouseEvent('pointermove', { bubbles: true, composed: true }));
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(host.style.opacity).toBe('1');
+
+    host.dispatchEvent(new MouseEvent('pointerleave', { composed: true }));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(host.style.opacity).toBe('0');
+  });
+
+  it('holds controls visible for keyboard focus inside the shadow root', async () => {
+    vi.useFakeTimers();
+    const { tile } = stream();
+    install();
+    await vi.advanceTimersByTimeAsync(2000);
+    // jsdom tracks shadow focus but does not implement its :focus-visible state.
+    const shadow = toolbar(tile).shadowRoot!;
+    const querySelector = shadow.querySelector.bind(shadow);
+    vi.spyOn(shadow, 'querySelector').mockImplementation(((selector: string) => (
+      selector === 'button:focus-visible' ? shadow.activeElement : querySelector(selector)
+    )) as typeof shadow.querySelector);
+    const plus = control(tile, 'Zoom in');
+    plus.focus();
+    expect(toolbar(tile).style.opacity).toBe('1');
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(toolbar(tile).style.opacity).toBe('1');
+
+    control(tile, 'Reset zoom').focus();
+    control(tile, 'Reset zoom').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true }));
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(toolbar(tile).style.opacity).toBe('1');
+    control(tile, 'Reset zoom').blur();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+  });
+
+  it('lets controls hide after a pointer click leaves a zoom button focused', async () => {
+    vi.useFakeTimers();
+    const { tile, video } = stream();
+    install();
+    const plus = control(tile, 'Zoom in');
+    plus.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true, button: 0 }));
+    plus.focus();
+    plus.click();
+    toolbar(tile).dispatchEvent(new MouseEvent('pointerleave', { composed: true }));
+    pointer(video, 'pointermove', 510, 350);
+    expect(percentage(tile)).toBe(125);
+    expect(toolbar(tile).shadowRoot?.activeElement).toBe(plus);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+  });
+
+  it('clears the pending idle countdown when zoom controls are cleaned up', () => {
+    vi.useFakeTimers();
+    const { tile } = stream();
+    const stop = install();
+    control(tile, 'Zoom in').click();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(tile.querySelector('[data-backspace-stream-zoom]')).toBeNull();
+  });
+
+  it('hides when the pointer leaves the stream but stays visible during a drag', async () => {
+    vi.useFakeTimers();
+    const { tile, video } = stream();
+    install();
+    tile.dispatchEvent(new MouseEvent('pointerleave'));
+    expect(toolbar(tile).style.opacity).toBe('0');
+
+    wheel(video, -240);
+    pointer(video, 'pointerdown', 500, 350);
+    tile.dispatchEvent(new MouseEvent('pointerleave'));
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(toolbar(tile).style.opacity).toBe('1');
+    pointer(tile, 'pointerup', 510, 350);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+  });
+
+  it('resumes hiding when a source change cancels a drag after its idle countdown elapsed', async () => {
+    vi.useFakeTimers();
+    const { tile, video } = stream();
+    const stop = install();
+    wheel(video, -240);
+    pointer(video, 'pointerdown', 500, 350);
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(toolbar(tile).style.opacity).toBe('1');
+
+    video.srcObject = { id: 'replacement-share' } as unknown as MediaStream;
+    await vi.advanceTimersByTimeAsync(250);
+    expect(percentage(tile)).toBe(100);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(toolbar(tile).style.opacity).toBe('0');
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('does not let control clicks collapse the focused stream', () => {
     const { wrapper, tile } = stream();
     const returnToGrid = vi.fn();

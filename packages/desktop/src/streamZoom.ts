@@ -64,12 +64,15 @@ export function installStreamZoom(): () => void {
     let percentageFormatter: Intl.NumberFormat;
     let requestedTransform = '';
     let appliedTransform = '';
+    let hideControlsTimer: number | undefined;
+    let controlsHovered = false;
+    let controlsFocused = false;
     const restoreVideo = preserveStyles(video, ['transform', 'transform-origin', 'pointer-events']);
     const restoreTile = preserveStyles(tile, ['touch-action', 'cursor']);
     const host = document.createElement('div');
     host.setAttribute('data-backspace-stream-zoom', '');
     host.setAttribute('role', 'group');
-    host.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:48px;z-index:10;';
+    host.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:48px;z-index:10;transition:opacity .15s;';
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = `
@@ -96,6 +99,48 @@ export function installStreamZoom(): () => void {
     controls.append(minus, reset, plus);
     shadow.append(style, controls);
     tile.append(host);
+
+    function hideControls(): void {
+      window.clearTimeout(hideControlsTimer);
+      hideControlsTimer = undefined;
+      host.style.opacity = '0';
+      host.style.pointerEvents = 'none';
+    }
+
+    function showControls(): void {
+      window.clearTimeout(hideControlsTimer);
+      host.style.opacity = '1';
+      host.style.pointerEvents = 'auto';
+      hideControlsTimer = window.setTimeout(() => {
+        hideControlsTimer = undefined;
+        if (!controlsHovered && !controlsFocused && !drag) hideControls();
+      }, 2000);
+    }
+
+    function onControlsEnter(): void {
+      controlsHovered = true;
+      showControls();
+    }
+
+    function onControlsLeave(): void {
+      controlsHovered = false;
+      showControls();
+    }
+
+    function onControlsFocus(): void {
+      // A mouse click must not pin the panel after the pointer moves away.
+      controlsFocused = !!shadow.querySelector('button:focus-visible');
+      showControls();
+    }
+
+    function onControlsBlur(): void {
+      controlsFocused = false;
+      showControls();
+    }
+
+    function onPointerLeave(): void {
+      if (!controlsFocused && !drag) hideControls();
+    }
 
     function trackSignature(): string {
       const stream = video.srcObject;
@@ -165,6 +210,7 @@ export function installStreamZoom(): () => void {
       const ratio = nextScale / view.scale;
       view = clamp({ scale: nextScale, x: x - (x - view.x) * ratio, y: y - (y - view.y) * ratio });
       render();
+      showControls();
     }
 
     function onWheel(event: WheelEvent): void {
@@ -186,9 +232,11 @@ export function installStreamZoom(): () => void {
       tile.setPointerCapture(event.pointerId);
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
       render();
+      showControls();
     }
 
     function onPointerMove(event: PointerEvent): void {
+      showControls();
       if (!drag || drag.id !== event.pointerId) return;
       event.preventDefault();
       event.stopPropagation();
@@ -208,6 +256,7 @@ export function installStreamZoom(): () => void {
       if (drag?.id !== event.pointerId) return;
       releaseDrag();
       render();
+      showControls();
     }
 
     function onClick(event: MouseEvent): void {
@@ -221,6 +270,8 @@ export function installStreamZoom(): () => void {
       if (source !== video.srcObject || sourceTracks !== tracks) {
         source = video.srcObject;
         sourceTracks = tracks;
+        // A source reset can end a drag after its idle timer already expired.
+        if (drag) showControls();
         releaseDrag();
         view = { scale: 1, x: 0, y: 0 };
         return true;
@@ -236,10 +287,17 @@ export function installStreamZoom(): () => void {
 
     minus.addEventListener('click', () => zoom(view.scale - .25));
     plus.addEventListener('click', () => zoom(view.scale + .25));
-    reset.addEventListener('click', () => { releaseDrag(); view = { scale: 1, x: 0, y: 0 }; render(); });
+    reset.addEventListener('click', () => { releaseDrag(); view = { scale: 1, x: 0, y: 0 }; render(); showControls(); });
     host.addEventListener('click', (event) => event.stopPropagation());
-    host.addEventListener('pointerdown', (event) => event.stopPropagation());
+    host.addEventListener('pointerdown', (event) => { controlsFocused = false; showControls(); event.stopPropagation(); });
+    host.addEventListener('pointerenter', onControlsEnter);
+    host.addEventListener('pointerleave', onControlsLeave);
+    host.addEventListener('focusin', onControlsFocus);
+    host.addEventListener('focusout', onControlsBlur);
+    host.addEventListener('keydown', () => { controlsFocused = true; showControls(); });
     tile.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    tile.addEventListener('pointerenter', showControls);
+    tile.addEventListener('pointerleave', onPointerLeave);
     tile.addEventListener('pointerdown', onPointerDown, true);
     tile.addEventListener('pointermove', onPointerMove, true);
     tile.addEventListener('pointerup', onPointerEnd, true);
@@ -257,14 +315,18 @@ export function installStreamZoom(): () => void {
       else if (checkSource()) { view = clamp(view); render(); }
     }, 250);
     render();
+    showControls();
 
     return {
       video,
       refresh,
       destroy: () => {
+        window.clearTimeout(hideControlsTimer);
         window.clearInterval(sourceTimer);
         resizeObserver.disconnect();
         tile.removeEventListener('wheel', onWheel, true);
+        tile.removeEventListener('pointerenter', showControls);
+        tile.removeEventListener('pointerleave', onPointerLeave);
         tile.removeEventListener('pointerdown', onPointerDown, true);
         tile.removeEventListener('pointermove', onPointerMove, true);
         tile.removeEventListener('pointerup', onPointerEnd, true);
