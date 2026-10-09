@@ -14,7 +14,9 @@
 #
 # The base is node:24-slim, Node v24.20.0. All three stages pin it by the digest
 # of the multi-arch index, so the same pin resolves on amd64 and on arm64.
-FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS deps
+# Pull Docker's official image from ECR Public to avoid Docker Hub's shared-IP
+# pull limit on CI runners. The index digest is identical on both registries.
+FROM public.ecr.aws/docker/library/node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS deps
 
 RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 
@@ -43,7 +45,7 @@ RUN pnpm install --prod --frozen-lockfile
 # the native module is installed once, in `deps`.
 #
 # Base: node:24-slim, Node v24.20.0.
-FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS builder
+FROM public.ecr.aws/docker/library/node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.34.3 --activate
 
@@ -81,7 +83,7 @@ RUN pnpm --filter @backspace/web build
 # Stage 3: Production runtime
 #
 # Base: node:24-slim, Node v24.20.0.
-FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
+FROM public.ecr.aws/docker/library/node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
 
 # No package manager ships in the runtime image. This stage installs nothing
 # from a registry: node_modules arrives from `deps` as a finished tree and the
