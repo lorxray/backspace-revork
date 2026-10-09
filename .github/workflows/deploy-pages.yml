@@ -39,6 +39,8 @@ permissions:
 
 jobs:
   deploy:
+    # This workflow publishes the upstream landing page at backspacechat.com.
+    if: ${{ github.repository == 'TheZwiss/backspace' }}
     runs-on: ubuntu-latest
     # Declared on the job, not at workflow level, because this workflow is
     # reached two ways and the group has to hold on both. `deploy` is the only

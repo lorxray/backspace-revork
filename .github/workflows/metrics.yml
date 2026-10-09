@@ -23,11 +23,9 @@ name: Metrics
 # still reads its token from the METRICS_TOKEN environment variable, which is
 # how a developer running it by hand passes a PAT.
 #
-# Never runs on a fork: the release bot's secrets do not propagate to forks,
-# so a fork's token step would fail every single day with nothing anyone could
-# do about it short of disabling the workflow. `github.event.repository.fork`
-# gates the job instead of a hardcoded repo slug, which stays correct if the
-# project is ever renamed or transferred.
+# Runs only in the upstream repository, where the release bot is configured.
+# Imported repositories may not have GitHub's fork flag, but still lack the
+# bot's secrets and should not start a failing daily collection automatically.
 #
 # Why `gh workflow enable`: GitHub disables scheduled workflows after 60 days
 # with no repository activity. This workflow's own commits go to a non-default
@@ -81,12 +79,8 @@ concurrency:
 jobs:
   collect:
     name: Collect metrics
-    # Skip entirely on forks. A fork's Actions run still resolves
-    # `github.repository` to its own slug, but it never has the release bot's
-    # RELEASE_BOT_APP_ID and RELEASE_BOT_PRIVATE_KEY (secrets do not propagate
-    # to forks), so the token step would otherwise fail loudly on a schedule
-    # the fork owner never opted into.
-    if: ${{ !github.event.repository.fork }}
+    # Collection requires the upstream release bot and its installation secrets.
+    if: ${{ github.repository == 'TheZwiss/backspace' }}
     runs-on: ubuntu-latest
     # Both scopes are load-bearing, and Scorecard's Token-Permissions check
     # reports a job-level `contents` or `actions` write whatever the reason
