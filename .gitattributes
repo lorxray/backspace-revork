@@ -3,3 +3,6 @@
 /io.github.TheZwiss.backspace.yml text eol=lf
 /flatpak/** text eol=lf
 /.github/workflows/flatpak.yml text eol=lf
+
+# Vendored files are verified against upstream byte-for-byte checksums.
+/site/insights/vendor/** -text

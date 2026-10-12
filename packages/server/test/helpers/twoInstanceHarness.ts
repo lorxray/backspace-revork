@@ -108,19 +108,28 @@ async function waitForReady(origin: string, proc: ChildProcess, logPath: string,
   // analysis does not track assignments made inside a callback, so a `let`
   // read after the loop narrows to its initializer and the fields below become
   // `never`. Property reads are not narrowed that way.
-  const exit: { happened: boolean; code: number | null; signal: NodeJS.Signals | null } = {
+  const exit: { happened: boolean; code: number | null; signal: NodeJS.Signals | null; error: Error | null } = {
     happened: false,
     code: null,
     signal: null,
+    error: null,
   };
   const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
     exit.happened = true;
     exit.code = code;
     exit.signal = signal;
   };
+  const onError = (error: Error) => { exit.error = error; };
   proc.once('exit', onExit);
+  proc.once('error', onError);
   try {
     while (Date.now() < deadline) {
+      if (exit.error) {
+        throw new Error(
+          `Instance ${origin} could not start: ${exit.error.message}. See log at ${logPath}`,
+          { cause: exit.error },
+        );
+      }
       if (exit.happened) {
         throw new Error(
           `Instance ${origin} exited during boot (code=${exit.code}, signal=${exit.signal}). ` +
@@ -138,6 +147,7 @@ async function waitForReady(origin: string, proc: ChildProcess, logPath: string,
     throw new Error(`Instance ${origin} did not become ready within ${timeoutMs}ms. See log at ${logPath}`);
   } finally {
     proc.off('exit', onExit);
+    proc.off('error', onError);
   }
 }
 
@@ -261,7 +271,9 @@ async function spawnOnPort(port: number, opts: SpawnInstanceOptions): Promise<Sp
   }
   // From packages/server/test/helpers → packages/server is up two levels.
   const serverDir = path.resolve(__dirname, '../../');
-  const proc = spawn('pnpm', ['exec', 'tsx', 'src/index.ts'], {
+  // Use the same entry point as `pnpm start`, without a platform-specific
+  // package-manager shim or an extra process between the harness and server.
+  const proc = spawn(process.execPath, ['--import', 'tsx/esm', 'src/index.ts'], {
     cwd: serverDir,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
