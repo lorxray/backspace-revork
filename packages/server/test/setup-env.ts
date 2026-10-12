@@ -12,3 +12,9 @@
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET ??= 'test-only-jwt-secret-not-for-production-use!!';
+// A helper can reach getDb() without a DB mock. SQLite :memory: gives each
+// isolated test module graph its own database, instead of racing migrations
+// against other suites or opening the checkout's real data/backspace.db.
+// Explicit fixtures keep their DB_PATH; the live-server harness overrides it
+// with a separate file for every child so HTTP and inspection share that DB.
+process.env.DB_PATH ??= ':memory:';

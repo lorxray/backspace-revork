@@ -4,20 +4,6 @@ import { closeDatabase } from '../db/index.js';
 import { connectionManager, VOICE_RECONNECT_GRACE_MS } from './handler.js';
 import { handleClientEvent } from './events.js';
 
-// Keep DM member and refused-join queries real, without sharing the checkout's
-// database with concurrently running suites. These rooms have no backing rows.
-vi.mock('../config.js', async (importActual) => {
-  const actual = await importActual<typeof import('../config.js')>();
-  return {
-    ...actual,
-    config: {
-      ...actual.config,
-      dbPath: ':memory:',
-      backup: { ...actual.config.backup, disabled: true },
-    },
-  };
-});
-
 function socket(): WebSocket {
   return { readyState: 1, send: vi.fn() } as unknown as WebSocket;
 }
