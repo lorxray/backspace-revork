@@ -29,7 +29,7 @@ import { PictureInPicture } from '../voice/PictureInPicture';
 import { SoundController } from '../voice/SoundController';
 import { GlobalAudioRenderer } from '../voice/GlobalAudioRenderer';
 import { NotificationController } from '../NotificationController';
-import { UserProfilePopout } from '../ui/UserProfilePopout';
+import { UserProfilePopoutLayer } from '../ui/UserProfilePopoutLayer';
 import { ToastContainer } from '../ui/ToastContainer';
 import { UpdateToast } from '../ui/UpdateToast';
 import { InstanceUpdateToast } from '../ui/InstanceUpdateToast';
@@ -47,6 +47,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { AudioManager } from '../../audio/AudioManager';
+import { isAppSystemAudioSource, userDevicesSignature } from '../../utils/systemAudioSource';
 
 export function AppLayout() {
   const { t } = useTranslation('common');
@@ -128,12 +129,17 @@ export function AppLayout() {
     let pendingHandlerTimer: ReturnType<typeof setTimeout> | null = null;
     const HANDLER_DEBOUNCE_MS = 250;
 
+    // The system-audio source of a share appears and disappears with the share. It is not a
+    // device change the user made, so it must not toast or re-acquire the microphone.
+    let lastRealDevices: string | null = null;
+
     const seedBaseline = async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         lastInputGroupIds = new Set(
-          devices.filter(d => d.kind === 'audioinput' && d.groupId).map(d => d.groupId)
+          devices.filter(d => d.kind === 'audioinput' && d.groupId && !isAppSystemAudioSource(d)).map(d => d.groupId)
         );
+        lastRealDevices = userDevicesSignature(devices);
       } catch { /* enumeration may be blocked pre-permission; baseline is empty */ }
     };
 
@@ -141,7 +147,7 @@ export function AppLayout() {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const currentInputGroupIds = new Set(
-          devices.filter(d => d.kind === 'audioinput' && d.groupId).map(d => d.groupId)
+          devices.filter(d => d.kind === 'audioinput' && d.groupId && !isAppSystemAudioSource(d)).map(d => d.groupId)
         );
         const now = Date.now();
         const newGroups: string[] = [];
@@ -191,6 +197,11 @@ export function AppLayout() {
     const handler = () => {
       if (pendingHandlerTimer) clearTimeout(pendingHandlerTimer);
       pendingHandlerTimer = setTimeout(async () => {
+        try {
+          const signature = userDevicesSignature(await navigator.mediaDevices.enumerateDevices());
+          if (signature === lastRealDevices) return;
+          lastRealDevices = signature;
+        } catch { /* enumeration failure: treat as a change, as before */ }
         await prune();
         await reacquireLiveStream();
         if (pendingDebounceTimer) clearTimeout(pendingDebounceTimer);
@@ -231,8 +242,6 @@ export function AppLayout() {
 
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const isMobile = useUIStore((s) => s.isMobile);
-  const userProfilePopout = useUIStore((s) => s.userProfilePopout);
-  const closeUserProfile = useUIStore((s) => s.closeUserProfile);
   
   const channels = useSpaceStore((s) => s.channels);
 
@@ -477,23 +486,7 @@ export function AppLayout() {
       <NotificationController />
       <UpdateToast />
 
-      {/* User Profile Popout */}
-      {userProfilePopout.user && userProfilePopout.anchor && (
-        <>
-          <div
-            className="fixed inset-0 z-[145]"
-            onClick={closeUserProfile}
-          />
-          <UserProfilePopout
-            user={userProfilePopout.user}
-            origin={userProfilePopout.origin}
-            onClose={closeUserProfile}
-            anchor={userProfilePopout.anchor}
-            placement={userProfilePopout.placement}
-            member={userProfilePopout.member}
-          />
-        </>
-      )}
+      <UserProfilePopoutLayer />
 
       {/* Federation toasts render through ToastContainer below (raised by the
           useFederationToasts() hook above); this also mounts the instance

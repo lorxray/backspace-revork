@@ -327,6 +327,12 @@ no code or the catalog has no entry. A `code` that is missing from the
 `errors` namespace is a check-script failure, so every code shipped by the
 server has words in every language.
 
+A surface whose own failure text says more than an uncoded failure would (a
+browser exception from a clipboard write, a server's bare English `error`)
+uses `describeCodedError(err, fallback)` from the same file: the code's text
+when the error is an `HttpError` with a code, else `fallback`. The space
+menu's Invite People toasts and the notification settings save use it.
+
 Federation: error bodies relayed from a peer instance follow the same
 contract, so a code from a newer peer is localized and a bare `error` from
 an older peer is shown as is.
@@ -337,6 +343,13 @@ The space directory ([directory.md](directory.md)) added four codes:
 section shows this text as its unreachable state), `directory_private_space`
 (`directoryListed: true` on a private space) and
 `directory_requires_discovery` (`directoryEnabled: true` with discovery off).
+
+Two codes are no longer sent by a current server but stay in the list, because an older instance still sends them and a code never changes meaning: `space_uses_join_requests` (an invite link refused for a space joined by request) and `space_requires_approval` (a DM invite to one refused). Both stopped after 1.9.0, when a request space got an invite link that leads to a join request; `join_request_required` now carries `details.spaceId` for that request ([spaces.md](spaces.md), "Join by Invite Code").
+
+Personal stickers ([uploads.md](uploads.md#14-personal-stickers)) added
+four codes: `sticker_invalid_image` (`details.max`, in MB), `sticker_not_local`,
+`sticker_not_found` and `sticker_collection_full` (`details.max`). The
+sticker upload limit answers with the shared `rate_limited`.
 
 Concurrent permission edits ([permissions.md](permissions.md), "Concurrent
 edits") added two `409` codes: `overrides_conflict` (a channel or category
@@ -416,7 +429,11 @@ routes' codes, from `utils/dmMessageRules.ts`; see
 [websocket.md](websocket.md#dm-messages)), `dm_call_in_progress`,
 `not_dm_member` and `validation_failed` (`dm_call_start`), and
 `dm_call_not_found`, `not_dm_member` and `validation_failed`
-(`dm_call_accept`; see [voice.md](voice.md#dm-call-state-machine)).
+(`dm_call_accept`; see [voice.md](voice.md#dm-call-state-machine)), every
+refusal of `channel_poke` (`validation_failed`, `channel_not_found`,
+`missing_permission`, `member_not_found`, `poke_target_no_access`,
+`rate_limited`; see [websocket.md](websocket.md#channel-pokes)), and
+`system_message_immutable` for a `message_edit` of a channel system message.
 
 The web client no longer matches on English error text. The places that
 used to (the join page, the space invite card, the invite modal, the roles
@@ -432,8 +449,13 @@ DM system messages (member added, removed, left, ownership transferred, call
 events, space invites) are stored and relayed as structured JSON with a
 `type` discriminator and identity fields, never as English text. The client
 renders them through `dmFormatters.ts`, which now reads the `dm:system.*`
-keys. This is the only kind of server-authored text shown in chat, and it is
-already federation safe because peers relay the structure, not a rendering.
+keys. It is federation safe because peers relay the structure, not a
+rendering.
+
+Space channel system messages (a poke) follow the same rule: structured JSON
+(`channelSystemEvents.ts`) with ids and a name snapshot, rendered by
+`ChannelSystemMessage` from `chat:poke.received`. Content a client does not
+know renders `dm:system.generic` in both places.
 
 If a future feature stores a human sentence on the server, that is a bug in
 the feature, not a localization task.

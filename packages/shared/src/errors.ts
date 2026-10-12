@@ -126,6 +126,8 @@ export const ERROR_CODES = [
   'invalid_body',
   'invalid_target',
   'cannot_invite_self',
+  // Sent up to 1.9.0 by POST /api/dm/space-invite for a local request space.
+  // A current server sends that invite; an older home still refuses it.
   'space_requires_approval',
   'message_lookup_failed',
   // admin-settings
@@ -181,6 +183,8 @@ export const ERROR_CODES = [
   'join_request_not_found',
   'join_request_decided',
   // spaces
+  'space_owner_title_invalid',
+  'member_nickname_invalid',
   'space_name_required',
   'space_name_length',
   'space_create_failed',
@@ -188,9 +192,13 @@ export const ERROR_CODES = [
   'space_visibility_invalid',
   'space_update_failed',
   'space_owner_only',
+  // Sent up to 1.9.0 by POST /api/spaces/:id/invite for a request space. A
+  // current server hands that space its link; an older peer still sends it.
   'space_uses_join_requests',
   'invite_code_required',
   'invite_not_found',
+  // An invite code used on a request space. `details.spaceId` names the space
+  // to send `POST /api/spaces/:id/request-join` to (absent up to 1.9.0).
   'join_request_required',
   'cannot_change_own_roles',
   'role_ids_invalid',
@@ -245,6 +253,7 @@ export const ERROR_CODES = [
   'system_message_immutable',
   'message_edit_not_author',
   'message_delete_forbidden',
+  'poke_target_no_access',
   'paging_cursor_conflict',
   'internal_error',
   // misc
@@ -259,6 +268,12 @@ export const ERROR_CODES = [
   'directory_unreachable',
   'directory_private_space',
   'directory_requires_discovery',
+
+  // Personal stickers
+  'sticker_invalid_image',
+  'sticker_not_local',
+  'sticker_not_found',
+  'sticker_collection_full',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
