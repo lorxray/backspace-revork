@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MESSAGE_PAGING_HEADER } from '@backspace/shared';
@@ -62,13 +62,23 @@ describe('CORS posture', () => {
     // localStorage and are attached explicitly. If that ever stops being true,
     // the whole posture in docs/systems/web-security.md has to be revisited,
     // so fail loudly rather than let it drift.
-    const { execSync } = await import('node:child_process');
-    const hits = execSync(
-      `grep -rniE "setcookie|@fastify/cookie|req(uest)?\\.cookies|['\\"]set-cookie['\\"]" ${SERVER_SRC} || true`,
-      { encoding: 'utf8' },
-    )
-      .split('\n')
-      .filter(Boolean);
+    const ambientCredentials = /setcookie|@fastify\/cookie|req(uest)?\.cookies|['"]set-cookie['"]/i;
+    async function scan(directory: string): Promise<string[]> {
+      const hits: string[] = [];
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          hits.push(...await scan(file));
+        } else if (entry.isFile()) {
+          const lines = (await readFile(file, 'utf8')).split(/\r?\n/);
+          for (const [index, line] of lines.entries()) {
+            if (ambientCredentials.test(line)) hits.push(`${file}:${index + 1}:${line}`);
+          }
+        }
+      }
+      return hits;
+    }
+    const hits = await scan(SERVER_SRC);
     expect(hits).toEqual([]);
   });
 

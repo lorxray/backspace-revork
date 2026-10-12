@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   cla-assistant:
+    # This agreement and signature store belong to the upstream project.
+    if: github.repository == 'TheZwiss/backspace'
     runs-on: ubuntu-latest
     # Scoped to this job because it is the only one that runs the action.
     # contributor-assistant/github-action, pinned below, makes these calls:

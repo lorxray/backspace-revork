@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Space, Channel, ChannelCategory, MemberWithUser, SpaceWithChannelsAndMembers, Role, SpaceFolder, SpaceLayoutItem, DmChannel, DmMessageWithUser, User, UpdateSpaceRequest, CreateSpaceRequest, UpdateChannelRequest } from '@backspace/shared';
-import { api, BackspaceApiClient } from '../api/client';
+import { api, BackspaceApiClient, HttpError } from '../api/client';
+import { JoinRequestRequiredError } from '../utils/joinErrors';
 import { resolveAssetUrl, normalizeUserAssets } from '../utils/assetUrls';
 import { userKey, isIssuedByHome, withUserUpdate, type IdentityFields, type PresenceSubject } from '../utils/identity';
 import { sortDmChannels } from '../utils/dmSorting';
@@ -48,7 +49,7 @@ import { useNotificationSettingsStore } from './notificationSettingsStore';
 // ─── Instance-aware types ─────────────────────────────────────────────────────
 
 /** Server augmented with instance origin tracking (client-only, not in shared types). */
-export type TaggedSpace = Space & { _instanceOrigin: string };
+export type TaggedSpace = Space & { _instanceOrigin: string; myRoleIds?: string[] };
 
 // ─── Error types ─────────────────────────────────────────────────────────────
 
@@ -57,6 +58,46 @@ export class NotConnectedError extends Error {
   constructor(public origin: string) {
     super(`Not connected to ${origin}`);
     this.name = 'NotConnectedError';
+  }
+}
+
+/**
+ * The origin a join or a join request is sent to: `''` for the page's own
+ * instance (an explicit `window.location.origin` included, as inviteParser
+ * normalizes at the URL boundary), else the remote origin, which must hold a
+ * connected session. Throws `NotConnectedError` when it does not, so the
+ * caller can run the connect step and try again.
+ */
+export async function connectedJoinOrigin(origin?: string): Promise<string> {
+  if (!origin) return '';
+  if (typeof window !== 'undefined' && origin === window.location.origin) return '';
+  // Dynamic import: instanceStore imports this module.
+  const { useInstanceStore } = await import('./instanceStore');
+  const connected = useInstanceStore.getState().instances.some(
+    (i) => i.origin === origin && i.status === 'connected',
+  );
+  if (!connected) throw new NotConnectedError(origin);
+  return origin;
+}
+
+/**
+ * The `JoinRequestRequiredError` for a join that `origin` refused with
+ * `join_request_required`, or null for any other failure. The space id comes
+ * from the refusal's `details.spaceId`; an instance up to 1.9.0 does not send
+ * it, so the invite preview is asked instead, and when that fails too the
+ * original refusal stands.
+ */
+async function joinRequestRequired(err: unknown, inviteCode: string, origin: string): Promise<JoinRequestRequiredError | null> {
+  if (!(err instanceof HttpError) || err.code !== 'join_request_required') return null;
+  const fromDetails = err.details?.spaceId;
+  if (typeof fromDetails === 'string' && fromDetails.length > 0) {
+    return new JoinRequestRequiredError(err, fromDetails, origin);
+  }
+  try {
+    const preview = await (origin ? getApiForOrigin(origin) : api).spaces.invitePreview(inviteCode);
+    return new JoinRequestRequiredError(err, preview.spaceId, origin);
+  } catch {
+    return null;
   }
 }
 
@@ -772,6 +813,8 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
             ...channelTableFields(state, replaced.tables),
             categoryOriginMap: withCategoryOrigins(state.categoryOriginMap, categories, origin),
             spacePermissions,
+            spaces: state.spaces.map(s => s.id === spaceId && s._instanceOrigin === origin
+              ? { ...s, myRoleIds: detail.members.find(m => m.userId === getMyUserIdForOrigin(origin))?.roles.map(r => r.id) ?? [] } : s),
             loadingSpaceId: endLoading(state),
           };
           if (state.currentSpaceId !== spaceId) return fields;
@@ -871,35 +914,20 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
   },
 
   joinByCode: async (inviteCode: string, origin?: string) => {
-    // Normalize: an explicit home origin is equivalent to undefined (local).
-    // Mirrors inviteParser's same normalization at the URL boundary.
-    if (origin && typeof window !== 'undefined' && origin === window.location.origin) {
-      origin = undefined;
+    const target = await connectedJoinOrigin(origin);
+    let space: Space;
+    try {
+      space = await (target ? getApiForOrigin(target) : api).spaces.joinByCode(inviteCode);
+    } catch (err) {
+      throw (await joinRequestRequired(err, inviteCode, target)) ?? err;
     }
-    if (origin) {
-      // Remote instance — verify connectivity via dynamic import (avoids circular dep)
-      const { useInstanceStore } = await import('./instanceStore');
-      const connected = useInstanceStore.getState().instances.some(
-        (i) => i.origin === origin && i.status === 'connected',
-      );
-      if (!connected) throw new NotConnectedError(origin);
-
-      const remoteApi = getApiForOrigin(origin);
-      const space =await remoteApi.spaces.joinByCode(inviteCode);
-      if (space.icon) space.icon = resolveAssetUrl(space.icon, origin) ?? space.icon;
-      if (space.banner) space.banner = resolveAssetUrl(space.banner, origin) ?? space.banner;
-      set((state) => {
-        if (state.spaces.find(s => s.id === space.id)) return state;
-        return { spaces: [...state.spaces, { ...space, _instanceOrigin: origin } as TaggedSpace] };
-      });
-      return space;
+    if (target) {
+      if (space.icon) space.icon = resolveAssetUrl(space.icon, target) ?? space.icon;
+      if (space.banner) space.banner = resolveAssetUrl(space.banner, target) ?? space.banner;
     }
-
-    // Home instance
-    const space =await api.spaces.joinByCode(inviteCode);
     set((state) => {
-      if (state.spaces.find(s => s.id === space.id)) return state;
-      return { spaces: [...state.spaces, { ...space, _instanceOrigin: '' } as TaggedSpace] };
+      if (state.spaces.find(s => s.id === space.id && s._instanceOrigin === target)) return state;
+      return { spaces: [...state.spaces, { ...space, _instanceOrigin: target } as TaggedSpace] };
     });
     return space;
   },
@@ -1201,12 +1229,15 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
       banner: s.banner ?? null,
       avatarColor: s.avatarColor ?? null,
       ownerId: s.ownerId,
+      ownerTitle: s.ownerTitle,
       inviteCode: s.inviteCode,
       visibility: s.visibility ?? 'private' as const,
       directoryListed: s.directoryListed ?? false,
       description: s.description ?? null,
       createdAt: s.createdAt,
       _instanceOrigin: origin,
+      // Cache our membership for every space, not only the currently open roster.
+      myRoleIds: s.members?.find(m => m.userId === getMyUserIdForOrigin(origin))?.roles.map(r => r.id) ?? [],
     }));
 
     // Merge by origin: keep servers from other origins, replace all from this origin
@@ -1319,6 +1350,7 @@ export const useSpaceStore = create<SpaceState>((set, get) => ({
       banner: space.banner ?? null,
       avatarColor: space.avatarColor ?? null,
       ownerId: space.ownerId,
+      ownerTitle: space.ownerTitle,
       inviteCode: space.inviteCode,
       visibility: space.visibility,
       directoryListed: space.directoryListed ?? false,
@@ -1491,6 +1523,21 @@ export function useIsDmChannel(channelId: string): boolean | undefined {
  * Returns the instance origin for a given channel ID.
  * '' = home instance, 'https://...' = remote instance.
  */
+/**
+ * The viewer's role ids in the space a channel belongs to, as the space's own
+ * instance lists them (`TaggedSpace.myRoleIds`). Undefined for a DM, and for
+ * a space whose roster has not been read yet.
+ */
+export function selectMyRoleIdsInChannel(
+  state: Pick<SpaceState, 'spaces' | 'channelToSpaceMap' | 'channelOriginMap'>,
+  channelId: string,
+): readonly string[] | undefined {
+  const spaceId = state.channelToSpaceMap.get(channelId);
+  if (spaceId === undefined) return undefined;
+  const origin = state.channelOriginMap.get(channelId) ?? '';
+  return state.spaces.find((s) => s.id === spaceId && (s._instanceOrigin ?? '') === origin)?.myRoleIds;
+}
+
 export function getChannelOrigin(channelId: string): string {
   return useSpaceStore.getState().channelOriginMap.get(channelId) ?? '';
 }

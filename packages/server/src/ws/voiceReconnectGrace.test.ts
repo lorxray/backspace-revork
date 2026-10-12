@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
+import { closeDatabase } from '../db/index.js';
 import { connectionManager, VOICE_RECONNECT_GRACE_MS } from './handler.js';
 import { handleClientEvent } from './events.js';
 
@@ -25,6 +26,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
+afterAll(() => closeDatabase());
 
 describe('voice reconnect grace', () => {
   it('keeps a space participant during the grace period', () => {

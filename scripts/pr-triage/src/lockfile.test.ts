@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseLockfile, diffLockfiles } from './lockfile.ts';
+import { readFirstReasons } from './verdict.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const realLockfile = readFileSync(path.join(here, '../../../pnpm-lock.yaml'), 'utf8');
@@ -62,6 +63,19 @@ function withPackages(extra: string, base: string = BASE): string {
 }
 
 describe('parseLockfile', () => {
+  it('reads the same packages and sections with LF and CRLF line endings', () => {
+    const lf = BASE.replace(/\r\n/g, '\n');
+    const parsed = parseLockfile(lf);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    expect(parseLockfile(lf.replace(/\n/g, '\r\n'))).toEqual(parsed);
+    expect(parsed.packages.size).toBe(3);
+    expect(parsed.localSpecifiers).toEqual([
+      'packages/web: @backspace/shared -> workspace:* (link:../shared)',
+    ]);
+    expect(parsed.overrides).toBe('undici@^7: ^7.29.0');
+    expect(parsed.patchedDependencies).toContain('hash: abc');
+  });
+
   it('parses the repository lockfile with every entry registry-resolved', () => {
     const parsed = parseLockfile(realLockfile);
     if (!parsed.ok) throw new Error(parsed.reason);
@@ -175,6 +189,32 @@ describe('parseLockfile', () => {
 });
 
 describe('diffLockfiles', () => {
+  it('ignores line-ending changes without flagging security-sensitive blocks', () => {
+    const lf = BASE.replace(/\r\n/g, '\n');
+    expect(diffLockfiles(lf, lf.replace(/\n/g, '\r\n'))).toEqual(diffLockfiles(lf, lf));
+    expect(diffLockfiles(lf.replace(/\n/g, '\r\n'), lf)).toEqual(diffLockfiles(lf, lf));
+  });
+
+  it('preserves security findings for CRLF lockfiles', () => {
+    const lf = BASE.replace(/\r\n/g, '\n');
+    const head = withPackages(`
+  evil@1.0.0:
+    resolution: {tarball: https://evil.example/evil.tgz}
+`, lf.replace('undici@^7: ^7.29.0', 'undici@^7: npm:evil@1.0.0').replace('hash: abc', 'hash: xyz'));
+    const expected = diffLockfiles(lf, head);
+    if (!expected.ok) throw new Error(expected.reason);
+    const crlf = diffLockfiles(lf.replace(/\n/g, '\r\n'), head.replace(/\n/g, '\r\n'));
+    expect(crlf).toEqual(expected);
+    if (!crlf.ok) throw new Error(crlf.reason);
+    expect(crlf.value.nonRegistry).toEqual([
+      { key: 'evil@1.0.0', resolution: '{tarball: https://evil.example/evil.tgz}' },
+    ]);
+    expect(readFirstReasons({ hits: [], packageJson: [], lockfile: crlf.value, sources: null })).toEqual([
+      'pnpm-lock.yaml (overrides)',
+      'pnpm-lock.yaml (patchedDependencies)',
+    ]);
+  });
+
   it('reports nothing for identical lockfiles', () => {
     const diff = diffLockfiles(BASE, BASE);
     if (!diff.ok) throw new Error(diff.reason);

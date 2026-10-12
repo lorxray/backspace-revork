@@ -108,10 +108,7 @@
   "invite": {
     "title": "邀请好友",
     "intro": "发送给好友，或分享邀请链接。",
-    "requestOnly": {
-      "notice": "此空间采用申请加入模式。成员需向管理员申请批准方可加入，因此没有可分享的邀请链接。",
-      "dismiss": "知道了"
-    },
+    "introRequest": "发送给好友，或分享邀请链接。打开链接的人会申请加入，由管理员批准每个申请。",
     "searchPlaceholder": "搜索好友…",
     "noMatches": "没有匹配您搜索的好友",
     "noFriends": "暂无好友",
@@ -166,6 +163,12 @@
       "passwordPlaceholder": "远端实例上的密码",
       "submit": "登录并加入",
       "submitting": "正在登录…"
+    },
+    "request": {
+      "notice": "此空间采用申请加入模式。发送申请后，管理员会进行审核。",
+      "messageLabel": "申请留言",
+      "sent": "申请已发送。管理员会进行审核，批准后该空间会出现在您的列表中。",
+      "pending": "您已申请加入此空间。您的申请正在等待管理员处理。"
     }
   },
   "explore": {
@@ -449,7 +452,8 @@
       "deafenMembers": "拒听成员",
       "moveMembers": "移动成员",
       "stream": "视频推流",
-      "disconnectMembers": "断开成员连接"
+      "disconnectMembers": "断开成员连接",
+      "mentionEveryone": "提及 @everyone、@here 和身份组"
     },
     "tristate": {
       "deny": "拒绝",
@@ -500,6 +504,7 @@
     },
     "space": {
       "inviteCopied": "邀请链接已复制到剪贴板",
+      "inviteCopiedRequest": "邀请链接已复制。打开链接的人可以申请加入。",
       "inviteFailed": "生成邀请失败",
       "transferOwnership": "转让所有权",
       "settings": "空间设置",
@@ -512,7 +517,9 @@
         "description": "确定要退出此空间吗？重新加入需要新的邀请链接。"
       },
       "left": "已退出空间",
-      "leaveFailed": "退出空间失败"
+      "leaveFailed": "退出空间失败",
+      "unreadMessages_other": "{{count}} 条未读消息",
+      "unreadMessagesOver99": "超过 99 条未读消息"
     },
     "dmList": {
       "explore": "探索",
@@ -543,7 +550,9 @@
       "spaceMuted": "已被空间静音",
       "spaceDeafened": "已被空间拒听",
       "permissionMuted": "已静音（无发言权限）"
-    }
+    },
+    "dmUnreadMessages_other": "{{count}} 条未读私信",
+    "dmUnreadMessagesOver99": "超过 99 条未读私信"
   },
   "channels": {
     "loading": "正在加载频道",
@@ -573,6 +582,25 @@
     "loading": "正在加载成员",
     "groups": {
       "owner": "拥有者"
+    },
+    "ownerTitle": {
+      "edit": "修改拥有者头衔",
+      "label": "拥有者头衔",
+      "hint": "仅在当前空间内对所有成员可见，长度为 1–{{max}} 个字符，不影响权限。",
+      "reset": "恢复默认"
+    },
+    "menu": {
+      "profile": "查看个人资料",
+      "nickname": "修改空间昵称…",
+      "roles": "身份组"
+    },
+    "nickname": {
+      "title": "修改空间昵称",
+      "label": "空间昵称",
+      "descriptionSelf": "仅在当前空间生效，不会修改你的账号名称或你在其他空间的昵称。留空则显示账号名称。",
+      "descriptionOther": "仅在当前空间生效，不会修改 {{name}} 的账号名称。留空则显示账号名称。",
+      "reset": "恢复为账号名称",
+      "shownAs": "在此空间的昵称：{{nickname}}"
     }
   },
   "mobile": {
@@ -648,6 +676,10 @@
     "mutedIndefinitely": "已静音，直到你取消",
     "spaceMuted": "此空间已静音，其频道也随之静音。",
     "mutedIndicator": "已静音",
-    "saveFailed": "无法保存通知设置"
+    "saveFailed": "无法保存通知设置",
+    "suppressEveryone": "屏蔽 @everyone 和 @here 提醒",
+    "suppressRoles": "屏蔽 @身份组 提醒",
+    "massHeading": "群组提及",
+    "massNote": "@here 与 @everyone 通知的成员相同。直接提及你的消息始终会通知你。"
   }
 }

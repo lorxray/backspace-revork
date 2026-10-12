@@ -121,6 +121,8 @@ describe('chosen status (#298 follow-up)', () => {
     // the choice untouched.
     expect(await waitUntil(() => statusRow(A, danaOnA.id)?.status === 'offline', 15_000)).toBe(true);
     expect(statusRow(A, danaOnA.id)).toEqual({ status: 'offline', chosen: 'dnd' });
+    // The DB write can become visible before the observer receives its socket broadcast.
+    expect(await waitUntil(() => presenceFor(observer, danaOnA.id).at(-1) === 'offline', 5_000)).toBe(true);
     expect(presenceFor(observer, danaOnA.id).at(-1)).toBe('offline');
 
     const second = track(await connectWs(A.origin, danaOnA.token));

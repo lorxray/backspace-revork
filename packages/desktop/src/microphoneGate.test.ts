@@ -12,7 +12,8 @@ class MockTrack extends EventTarget {
   readyState: 'live' | 'ended' = 'live';
   onended: ((event: Event) => void) | null = null;
   stopCalls = 0;
-  constructor(readonly kind = 'audio') { super(); }
+  constructor(readonly kind = 'audio', readonly label = '', readonly deviceId?: string) { super(); }
+  getSettings(): MediaTrackSettings { return { deviceId: this.deviceId }; }
   stop(): void { this.stopCalls++; this.readyState = 'ended'; }
   end(): void {
     this.readyState = 'ended';
@@ -206,6 +207,78 @@ describe('desktop microphone gate adapter', () => {
     expect(context.gains).toHaveLength(0);
     await flush();
     expect(context.audioWorklet.addModule).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { audio: { deviceId: { exact: 'system-audio' } }, label: 'vencord-screen-share', deviceId: 'system-audio' },
+    { audio: { deviceId: { exact: 'system-audio' } }, label: 'System audio', deviceId: 'system-audio' },
+    { audio: true, label: 'Default - vencord-screen-share', deviceId: 'system-audio' },
+    { audio: { deviceId: 'default' }, label: 'Default input', deviceId: 'default' },
+  ])('gates a microphone but leaves the Linux system-audio capture untouched: %j', async ({ audio, label, deviceId }) => {
+    const systemTrack = new MockTrack('audio', label, deviceId);
+    const systemCapture = new MockStream([systemTrack]);
+    const microphoneTrack = new MockTrack('audio', 'USB microphone', 'mic-1');
+    capture = new MockStream([microphoneTrack]);
+    nativeGetUserMedia.mockResolvedValueOnce(systemCapture.asMediaStream());
+    Object.assign(navigator.mediaDevices, {
+      enumerateDevices: vi.fn(async () => [
+        { kind: 'audioinput', deviceId: 'system-audio', label: 'vencord-screen-share' },
+        { kind: 'audioinput', deviceId: 'default', label: 'Default - vencord-screen-share' },
+        { kind: 'audioinput', deviceId: 'mic-1', label: 'USB microphone' },
+      ]),
+    });
+    cleanup = installMicrophoneGate(MODULE_URL);
+    settings(true, -40);
+    const context = new MockContext();
+    const systemStream = await navigator.mediaDevices.getUserMedia({ audio });
+    expect(systemStream).toBe(systemCapture);
+    const systemSource = context.createMediaStreamSource(systemStream);
+    const systemDestination = new MockNode();
+    expect(systemSource.connect(systemDestination)).toBe(systemDestination);
+    expect(systemSource.connect).toBe(MockNode.prototype.connect);
+    expect(systemSource.connections).toEqual([[systemDestination]]);
+    expect(context.gains).toHaveLength(0);
+
+    const microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: 'mic-1' } } });
+    const microphoneSource = context.createMediaStreamSource(microphoneStream);
+    microphoneSource.connect(new MockNode());
+    expect(microphoneStream).toBe(capture);
+    expect(microphoneSource.connect).not.toBe(MockNode.prototype.connect);
+    await flush();
+    expect(context.gains).toHaveLength(1);
+    expect(MockWorklet.instances).toHaveLength(1);
+    expect(MockWorklet.instances[0]!.options.processorOptions).toEqual({ enabled: true, thresholdDb: -40 });
+    expect(systemTrack.stopCalls).toBe(0);
+    expect(systemTrack.stop).toBe(MockTrack.prototype.stop);
+  });
+
+  it('does not gate a mixed stream containing microphone and system-audio tracks', async () => {
+    capture = new MockStream([
+      new MockTrack('audio', 'USB microphone'),
+      new MockTrack('audio', 'vencord-screen-share'),
+    ]);
+    cleanup = installMicrophoneGate(MODULE_URL);
+    settings(true);
+    const { context, source, destination } = await microphone();
+    source.connect(destination);
+    await flush();
+    expect(source.connect).toBe(MockNode.prototype.connect);
+    expect(source.connections).toEqual([[destination]]);
+    expect(context.gains).toHaveLength(0);
+    expect(context.audioWorklet.addModule).not.toHaveBeenCalled();
+  });
+
+  it('preserves successful microphone capture when device inspection fails', async () => {
+    capture = new MockStream([new MockTrack('audio', 'USB microphone', 'mic-1')]);
+    Object.assign(navigator.mediaDevices, {
+      enumerateDevices: vi.fn(async () => { throw new DOMException('Device inspection denied', 'NotAllowedError'); }),
+    });
+    cleanup = installMicrophoneGate(MODULE_URL);
+    const { stream, source, destination } = await microphone();
+    source.connect(destination);
+    await flush();
+    expect(stream).toBe(capture);
+    expect(MockWorklet.instances).toHaveLength(1);
   });
 
   it('does not instrument remote streams or getDisplayMedia audio', async () => {

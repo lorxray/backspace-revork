@@ -203,7 +203,26 @@ export function installMicrophoneGate(moduleUrl: string): () => void {
         chromeMediaSource?: string; mandatory?: { chromeMediaSource?: string };
       }) | undefined;
       const desktopAudio = typeof audio === 'object' && (audio?.chromeMediaSource || audio?.mandatory?.chromeMediaSource);
-      if (!destroyed && audio && !desktopAudio) for (const track of stream.getAudioTracks()) microphones.add(track);
+      if (!destroyed && audio && !desktopAudio) {
+        // Linux system audio is opened via getUserMedia too. Match the actual
+        // capture, including a virtual source selected as the default device.
+        // Keep this label local: the adapter is serialized without imports.
+        const isSystemAudio = (label: string) => label.includes('vencord-screen-share');
+        const candidates = stream.getAudioTracks()
+          .filter(track => !isSystemAudio(track.label))
+          .map(track => ({ track, deviceId: track.getSettings?.().deviceId }));
+        const systemAudioIds = new Set<string>();
+        if (candidates.some(({ deviceId }) => !!deviceId) && mediaDevices.enumerateDevices) {
+          try {
+            for (const device of await mediaDevices.enumerateDevices()) {
+              if (device.kind === 'audioinput' && isSystemAudio(device.label)) systemAudioIds.add(device.deviceId);
+            }
+          } catch { /* Device inspection must not turn a successful capture into a failure. */ }
+        }
+        if (!destroyed) for (const { track, deviceId } of candidates) {
+          if (!deviceId || !systemAudioIds.has(deviceId)) microphones.add(track);
+        }
+      }
       return stream;
     };
     Object.defineProperty(mediaDevices, 'getUserMedia', { configurable: true, writable: true, value: getUserMedia });
@@ -221,7 +240,9 @@ export function installMicrophoneGate(moduleUrl: string): () => void {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, 'createMediaStreamSource');
     const createMediaStreamSource = function (this: AudioContext, stream: MediaStream): MediaStreamAudioSourceNode {
       const source = Reflect.apply(original, this, [stream]) as MediaStreamAudioSourceNode;
-      if (!destroyed && stream.getAudioTracks().some(track => microphones.has(track))) instrument(source, this);
+      const tracks = stream.getAudioTracks();
+      // A mixed stream must not route system or remote audio through the gate.
+      if (!destroyed && tracks.length > 0 && tracks.every(track => microphones.has(track))) instrument(source, this);
       return source;
     };
     Object.defineProperty(prototype, 'createMediaStreamSource', { configurable: true, writable: true, value: createMediaStreamSource });
