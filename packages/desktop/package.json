@@ -1,6 +1,6 @@
 {
   "name": "@backspace/desktop",
-  "version": "1.11.1",
+  "version": "1.11.2",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Backspace",
@@ -13,12 +13,13 @@
   "desktopName": "io.github.TheZwiss.backspace.desktop",
   "scripts": {
     "build:ts": "tsc && node scripts/buildMicrophoneGatePreload.cjs",
-    "dev": "pnpm run build:ts && electron .",
+    "build:web-client": "node scripts/webClientBundle.cjs",
+    "dev": "pnpm run build:ts && pnpm run build:web-client && electron .",
     "build": "pnpm run build:ts && electron-builder",
     "build:portable": "pnpm run build:ts && corepack enable --install-directory node_modules/.bin pnpm && electron-builder --win portable --x64 --publish never",
     "build:all": "pnpm run build:ts && electron-builder --mac --win --linux --arm64 --x64",
     "clean": "rm -rf dist dist-electron",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/webClientBundle.test.cjs",
     "test:watch": "vitest",
     "test:microphone-gate": "pnpm run build:ts && electron scripts/testMicrophoneGate.cjs",
     "postinstall": "electron-rebuild -f -w uiohook-napi || node -e \"console.warn('[desktop] uiohook-napi native rebuild skipped - needs build tools (make, g++, python3). Only required to RUN the desktop app; the server, web client, and Docker image are unaffected.')\""

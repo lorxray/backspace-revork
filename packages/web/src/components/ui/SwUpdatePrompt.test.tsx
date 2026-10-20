@@ -270,7 +270,42 @@ afterEach(() => {
   Object.defineProperty(window, 'location', { value: originalLocation, configurable: true, writable: true });
   Reflect.deleteProperty(navigator, 'serviceWorker');
   Reflect.deleteProperty(navigator, 'locks');
+  Reflect.deleteProperty(window, 'backspace');
   useVoiceStore.getState().resetSession();
+});
+
+describe('SwAutoUpdate: bundled desktop interface', () => {
+  it('never registers an instance worker or reloads on its controller changes', async () => {
+    Object.defineProperty(window, 'backspace', {
+      configurable: true,
+      value: { bundledWebClient: true },
+    });
+    container.controller = fakeWorker('old-instance');
+    const listen = vi.spyOn(container, 'addEventListener');
+    const readRegistration = vi.spyOn(container, 'getRegistration');
+
+    render(<SwAutoUpdate />);
+    await changeController(fakeWorker('new-instance'));
+
+    expect(pwa.options).toBeUndefined();
+    expect(pwa.setNeedRefresh).toBeNull();
+    expect(listen).not.toHaveBeenCalled();
+    expect(readRegistration).not.toHaveBeenCalled();
+    expect(pwa.updateServiceWorker).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('preserves worker updates in desktop builds that still load the instance interface', async () => {
+    Object.defineProperty(window, 'backspace', {
+      configurable: true,
+      value: { bundledWebClient: false },
+    });
+    render(<SwAutoUpdate />);
+    await raiseNeedRefresh();
+
+    expect(pwa.options).toBeDefined();
+    expect(pwa.updateServiceWorker).toHaveBeenCalledOnce();
+  });
 });
 
 describe('SwAutoUpdate: applying a waiting build', () => {

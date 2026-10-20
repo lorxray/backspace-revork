@@ -19,7 +19,7 @@ vi.mock('../../../stores/updateStore', () => ({
   useUpdateStore: (selector: (state: typeof store) => unknown) => selector(store),
 }));
 
-function installHost(sandboxed: boolean) {
+function installHost(sandboxed: boolean, bundledWebClient?: boolean) {
   const isSandboxed = vi.fn().mockResolvedValue(sandboxed);
   const getAutoLaunchSettings = vi.fn().mockResolvedValue({
     openAtLogin: false,
@@ -29,6 +29,7 @@ function installHost(sandboxed: boolean) {
     configurable: true,
     writable: true,
     value: {
+      bundledWebClient,
       isSandboxed,
       getAutoLaunchSettings,
       setAutoLaunchSettings: vi.fn(),
@@ -40,6 +41,26 @@ function installHost(sandboxed: boolean) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('DesktopPanel bundled client source', () => {
+  it('offers the fork source and desktop version for the bundled interface', async () => {
+    installHost(true, true);
+    render(<DesktopPanel />);
+
+    const source = screen.getByRole('link', { name: /Source code \(AGPL\)/ });
+    expect(source).toHaveAttribute('href', 'https://github.com/lorxray/backspace-revork');
+    expect(source).toHaveTextContent('v1.0.5');
+    await waitFor(() => expect(store.initialize).toHaveBeenCalled());
+  });
+
+  it('keeps the existing instance source offer for remote interface builds', async () => {
+    installHost(true);
+    render(<DesktopPanel />);
+
+    expect(screen.queryByRole('link', { name: /Source code \(AGPL\)/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(store.initialize).toHaveBeenCalled());
+  });
 });
 
 afterEach(() => {

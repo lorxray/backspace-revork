@@ -4,6 +4,8 @@ import type { TFunction } from 'i18next';
 import { Toggle } from '../../ui/Toggle';
 import { useUpdateStore } from '../../../stores/updateStore';
 import { useFormatters, type Formatters } from '../../../i18n/formatters';
+import { BUNDLED_CLIENT_SOURCE_URL, isBundledDesktopClient } from '../../../platform/platform';
+import { SourceCodeLink } from '../../ui/SourceCodeLink';
 
 function AutoLaunchSettings() {
   const { t } = useTranslation('settings');
@@ -206,6 +208,10 @@ function UpdateSettings() {
             style={{ width: `${status.percent}%` }}
           />
         </div>
+      )}
+
+      {isBundledDesktopClient() && (
+        <SourceCodeLink sourceCodeUrl={BUNDLED_CLIENT_SOURCE_URL} version={currentVersion ?? undefined} />
       )}
 
       {capability === 'manual' && (

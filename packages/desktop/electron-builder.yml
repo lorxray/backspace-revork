@@ -15,6 +15,7 @@ directories:
   output: dist-electron
 files:
   - dist/**/*
+  - "!dist/web-client/**"
   - resources/**/*
   # Exclude host-compiled native module artifacts from the asar.
   # electron-rebuild (postinstall) compiles uiohook-napi for the build machine,
@@ -26,7 +27,14 @@ files:
   - "!**/node_modules/uiohook-napi/bin/**"
 asarUnpack:
   - "**/*.node"
+extraResources:
+  - from: dist/web-client
+    to: web-client
+    filter:
+      - "**/*"
 npmRebuild: false
+# Build the UI from current sources even for direct electron-builder calls.
+beforePack: ./scripts/beforePack.cjs
 # afterPack also flips Electron security fuses (RunAsNode, EnableNodeCliInspectArguments,
 # OnlyLoadAppFromAsar) via @electron/fuses, not via a top-level `electronFuses:` key here.
 # electron-builder 26 does support that key. It is not used because electron-builder runs

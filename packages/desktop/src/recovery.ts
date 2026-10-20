@@ -364,6 +364,18 @@ export function handleRendererReady(): void {
 let mainWindowRef: BrowserWindow | null = null;
 let autoUpdaterRef: AppUpdater | null = null;
 let onQuitRequestedCallback: (() => void) | null = null;
+let instanceLoader: ((url: string | null) => void) | null = null;
+
+/** Main owns the packaged frontend and its origin/cache setup on navigation. */
+export function setInstanceLoader(loader: ((url: string | null) => void) | null): void {
+  instanceLoader = loader;
+}
+
+function loadInstancePage(url: string | null): void {
+  if (instanceLoader) instanceLoader(url);
+  else if (url) mainWindowRef?.loadURL(url);
+  else mainWindowRef?.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+}
 
 export function setMainWindow(win: BrowserWindow | null): void {
   mainWindowRef = win;
@@ -455,10 +467,10 @@ export function handleRecoveryAction(action: RecoveryAction): void {
       recoveryStore.update({ mode: 'normal', reason: null });
       console.log('[recovery] exited (reload)');
       if (!url) {
-        mainWindowRef?.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+        loadInstancePage(null);
         return;
       }
-      mainWindowRef?.loadURL(url);
+      loadInstancePage(url);
       return;
     }
     case 'check-update': {
@@ -486,7 +498,7 @@ export function handleRecoveryAction(action: RecoveryAction): void {
       recoveryStore.markRecoveryExited();
       recoveryStore.update({ mode: 'normal', reason: null });
       console.log('[recovery] exited (change-instance)');
-      mainWindowRef?.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+      loadInstancePage(null);
       // Ensure visible — tray clicks may happen with window hidden, and the
       // recovery surface should also remain visible during the navigation.
       // When invoked from recovery.html (window already showing), these are

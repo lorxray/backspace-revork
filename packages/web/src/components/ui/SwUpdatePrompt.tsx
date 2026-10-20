@@ -1,5 +1,6 @@
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useEffect, useState } from 'react';
+import { isBundledDesktopClient } from '../../platform/platform';
 import { hasVoiceSession, useVoiceStore } from '../../stores/voiceStore';
 import { holdVoiceSessionLock, runWhenNoVoiceSession } from '../../utils/voiceSessionLock';
 
@@ -84,6 +85,12 @@ async function ownBuildWorker(container: ServiceWorkerContainer): Promise<OwnBui
  * tab of the rolled-back build has closed.
  */
 export function SwAutoUpdate() {
+  // Do not mount the registration hook at all: a server worker could otherwise
+  // replace the local interface or reload it onto a different frontend build.
+  return isBundledDesktopClient() ? null : <InstanceSwAutoUpdate />;
+}
+
+function InstanceSwAutoUpdate() {
   const [reloadPending, setReloadPending] = useState(false);
   const {
     needRefresh: [needRefresh],

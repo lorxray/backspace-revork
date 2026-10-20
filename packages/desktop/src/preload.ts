@@ -3,6 +3,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('backspace', {
   // Platform info
   platform: process.platform,
+  // Only the main window backed by the packaged web client receives this flag.
+  // Its interface updates with the desktop app, never an instance's worker.
+  bundledWebClient: process.argv.includes('--backspace-bundled-web-client'),
   // Window controls
   minimize: () => {
     ipcRenderer.send('minimize-window');
@@ -78,6 +81,7 @@ contextBridge.exposeInMainWorld('backspace', {
   // Deep linking
   onDeepLink: (callback: (url: string) => void) => {
     ipcRenderer.on('deep-link', (_event, url) => callback(url));
+    ipcRenderer.send('deep-link-listener-ready');
   },
 
   // Instance-origin-aware URL routing

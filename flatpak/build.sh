@@ -35,9 +35,9 @@ if [ -z "$electron_headers_dir" ]; then
 fi
 export npm_config_nodedir="$electron_headers_dir"
 
-# Install only the desktop workspace and its dependency closure. The lockfile
-# remains the source of truth and pnpm fails if any generated source is missing.
-$PNPM --filter @backspace/desktop... install --offline --frozen-lockfile
+# The desktop now bundles the web client. Install both workspace closures from
+# the same offline lockfile cache so packaging can build the UI from sources.
+$PNPM --filter @backspace/desktop... --filter @backspace/web... install --offline --frozen-lockfile
 $PNPM --filter @backspace/desktop run build:ts
 
 # Preserve the module electron-rebuild compiled from source. The shared

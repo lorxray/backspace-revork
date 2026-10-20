@@ -81,6 +81,8 @@ interface DesktopUpdateSnapshot {
 interface BackspaceElectronAPI {
   // Platform info
   platform: NodeJS.Platform;
+  /** Present in desktop builds that serve their interface from bundled files. */
+  bundledWebClient?: boolean;
   // Window controls
   minimize: () => void;
   maximize: () => void;

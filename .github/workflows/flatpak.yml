@@ -8,6 +8,8 @@ on:
       - 'flatpak/**'
       - 'io.github.TheZwiss.backspace.yml'
       - 'packages/desktop/**'
+      - 'packages/web/**'
+      - 'packages/shared/**'
       - 'pnpm-lock.yaml'
   push:
     branches: [main]
@@ -17,6 +19,8 @@ on:
       - 'flatpak/**'
       - 'io.github.TheZwiss.backspace.yml'
       - 'packages/desktop/**'
+      - 'packages/web/**'
+      - 'packages/shared/**'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
 

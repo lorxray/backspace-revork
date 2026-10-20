@@ -11,6 +11,7 @@ import {
   session,
   protocol,
   desktopCapturer,
+  dialog,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -49,6 +50,8 @@ import {
   isValidRecoveryAction,
   buildTrayMenuTemplate,
   buildAppMenuTemplate,
+  setInstanceLoader,
+  enterRecoveryMode,
   type RecoveryState,
 } from './recovery';
 import { migrateUserData } from './userDataMigration';
@@ -64,6 +67,9 @@ import {
   type ScreenSharePickerMode,
 } from './screenSharePolicy';
 import { getDesktopLanguage, isDesktopLanguage, saveStoredLanguage, translateDesktop } from './l10n';
+import { createBundledWebClient, type BundledWebClient } from './bundledWebClient';
+import { resolveInstanceRedirect } from './instanceRedirect';
+import { installBundledClientSession, type BundledClientSession } from './bundledClientSession';
 
 // Override Electron's package.json-derived app name so userData lives at
 // "<appData>/Backspace" instead of leaking the monorepo's "@backspace/desktop"
@@ -100,6 +106,44 @@ const keybindManager = new KeybindManager();
 let tray: Tray | null = null;
 let isQuitting = false;
 let pendingDeepLink: string | null = null;
+let deepLinkListenerReady = false;
+let bundledWebClient: BundledWebClient | null = null;
+let bundledClientSession: BundledClientSession | null = null;
+let instanceNavigationId = 0;
+
+/** Preserve the real origin and its login state while serving our own UI. */
+async function loadDesktopInstance(url: string | null): Promise<void> {
+  const navigationId = ++instanceNavigationId;
+  deepLinkListenerReady = false;
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try {
+    if (url === null) {
+      await bundledClientSession?.setInstanceUrl(null);
+      if (navigationId !== instanceNavigationId || win.isDestroyed()) return;
+      await win.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+      return;
+    }
+    if (bundledWebClient) {
+      // The local document cannot see the server's HTTP -> HTTPS redirect.
+      // Resolve it through its API before selecting the document's origin.
+      const original = url;
+      url = await resolveInstanceRedirect(url, win.webContents.session);
+      if (url !== original && loadInstanceUrl() === original) saveInstanceUrl(url);
+      const origin = new URL(url).origin;
+      await win.webContents.session.clearStorageData({ origin, storages: ['serviceworkers', 'cachestorage'] });
+      if (navigationId !== instanceNavigationId || win.isDestroyed() || recoveryStore.get().mode === 'recovery') return;
+      await bundledClientSession?.setInstanceUrl(url);
+      if (navigationId !== instanceNavigationId || win.isDestroyed() || recoveryStore.get().mode === 'recovery') return;
+    }
+    await win.loadURL(url);
+  } catch (error: unknown) {
+    if (navigationId === instanceNavigationId && !win.isDestroyed()) {
+      console.error('[bundled-client] Could not load instance:', error);
+      enterRecoveryMode({ code: 'load-failed', detail: String(error) });
+    }
+  }
+}
 
 const knownInstanceOrigins = new Set<string>();
 
@@ -114,6 +158,7 @@ const DESKTOP_SOURCE_URL = 'https://github.com/lorxray/backspace-revork';
  * Falls back to the desktop fork when no instance is loaded or the probe fails.
  */
 async function resolveSourceUrl(): Promise<string> {
+  if (bundledWebClient) return DESKTOP_SOURCE_URL;
   let base: string | null = process.env.BACKSPACE_URL ?? loadInstanceUrl();
   if (!base && mainWindow && !mainWindow.isDestroyed()) {
     const current = mainWindow.webContents.getURL();
@@ -392,10 +437,19 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: !app.isPackaged,
+      additionalArguments: bundledWebClient ? ['--backspace-bundled-web-client'] : [],
     },
   });
 
+  if (bundledWebClient) {
+    bundledClientSession = installBundledClientSession(mainWindow.webContents, bundledWebClient, (error) => {
+      ++instanceNavigationId;
+      if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) enterRecoveryMode({ code: 'load-failed', detail: error.message });
+    });
+  }
   setMainWindow(mainWindow);
+  setInstanceLoader((url) => { void loadDesktopInstance(url); });
   attachRecoveryHandlers(mainWindow);
   keybindManager.setWindow(mainWindow);
 
@@ -420,13 +474,13 @@ function createWindow(): void {
   // 3. No URL → show instance picker
   const envUrl = process.env.BACKSPACE_URL;
   if (envUrl) {
-    mainWindow.loadURL(envUrl);
+    void loadDesktopInstance(envUrl);
   } else {
     const savedUrl = loadInstanceUrl();
     if (savedUrl) {
-      mainWindow.loadURL(savedUrl);
+      void loadDesktopInstance(savedUrl);
     } else {
-      mainWindow.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+      void loadDesktopInstance(null);
     }
   }
 
@@ -443,11 +497,6 @@ function createWindow(): void {
       mainWindow?.show();
     }
 
-    // Send any pending deep link that launched the app
-    if (pendingDeepLink && mainWindow) {
-      mainWindow.webContents.send('deep-link', pendingDeepLink);
-      pendingDeepLink = null;
-    }
   });
 
   // Window state persistence — debounced save on resize/move
@@ -542,6 +591,10 @@ function createWindow(): void {
     if (!allowed) {
       console.warn(`[main] Blocked will-navigate to disallowed target: ${url}`);
       event.preventDefault();
+    } else if (bundledWebClient && (url.startsWith('https://') || url.startsWith('http://'))) {
+      // A peer or a full-page auth redirect must also load the packaged UI.
+      event.preventDefault();
+      void loadDesktopInstance(url);
     }
   });
 }
@@ -707,10 +760,14 @@ function registerIpcHandlers(): void {
   // Instance URL management
   ipcMain.handle('get-instance-url', () => loadInstanceUrl());
 
-  ipcMain.handle('set-instance-url', (_event, url: string) => {
+  ipcMain.handle('set-instance-url', async (_event, url: string) => {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new Error('Instance URL must be HTTP(S) without embedded credentials');
+    }
     saveInstanceUrl(url);
     if (mainWindow) {
-      mainWindow.loadURL(url);
+      const loading = loadDesktopInstance(url);
       // Force Electron to re-evaluate drag regions after navigation
       mainWindow.webContents.once('did-finish-load', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -719,13 +776,14 @@ function registerIpcHandlers(): void {
           mainWindow.setSize(bounds.width, bounds.height);
         }
       });
+      await loading;
     }
   });
 
   ipcMain.handle('clear-instance-url', () => {
     clearInstanceUrl();
     if (mainWindow) {
-      mainWindow.loadFile(getPickerPath(), { query: { lang: getDesktopLanguage() } });
+      void loadDesktopInstance(null);
       // Force Electron to re-evaluate drag regions after navigation
       mainWindow.webContents.once('did-finish-load', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -979,6 +1037,17 @@ function registerIpcHandlers(): void {
     handleRendererReady();
   });
 
+  // The initial about:blank/picker can be ready-to-show before the app has a
+  // route listener. Keep launch invites until that listener really exists.
+  ipcMain.on('deep-link-listener-ready', (event) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    deepLinkListenerReady = true;
+    if (pendingDeepLink) {
+      event.sender.send('deep-link', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
+
   ipcMain.on('recovery-action', (_e, action: unknown) => {
     if (!isValidRecoveryAction(action)) {
       console.warn('[recovery] ignored unknown action:', action);
@@ -1224,7 +1293,8 @@ function handleDeepLink(url: string): void {
   if (!url.startsWith('backspace://')) return;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('deep-link', url);
+    if (deepLinkListenerReady) mainWindow.webContents.send('deep-link', url);
+    else pendingDeepLink = url;
     mainWindow.show();
     mainWindow.focus();
   } else {
@@ -1295,6 +1365,14 @@ if (!gotTheLock) {
   // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
   app.whenReady().then(async () => {
+    const webRoot = app.isPackaged
+      ? path.join(process.resourcesPath, 'web-client')
+      : path.join(__dirname, 'web-client');
+    if (app.isPackaged || fs.existsSync(path.join(webRoot, 'index.html'))) {
+      bundledWebClient = createBundledWebClient({
+        root: webRoot,
+      });
+    }
     session.defaultSession.protocol.handle(MICROPHONE_GATE_SCHEME, handleMicrophoneGateRequest);
     session.defaultSession.registerPreloadScript({
       type: 'frame', filePath: path.join(__dirname, 'microphoneGatePreload.js'),
@@ -1333,7 +1411,7 @@ if (!gotTheLock) {
     }
 
     // Purge ALL stale caches so Electron always loads fresh code on launch
-    await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] });
+    await session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
     await session.defaultSession.clearCache();
 
     // Intercept getDisplayMedia(). Two ways to answer it:
@@ -1547,6 +1625,10 @@ if (!gotTheLock) {
     if (launchArg) {
       pendingDeepLink = launchArg;
     }
+  }).catch((error: unknown) => {
+    console.error('[main] Could not start the application:', error);
+    dialog.showErrorBox('Backspace', `Could not start Backspace. Please download the complete application again.\n\n${String(error)}`);
+    app.quit();
   });
 
   app.on('window-all-closed', () => {

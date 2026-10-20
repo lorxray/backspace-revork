@@ -29,7 +29,31 @@ Source files:
 The desktop app wraps the Backspace web client in Electron with:
 - **Main process** (`main.ts`): Window lifecycle, tray icon, IPC handler registry, auto-update, deep linking, activity detection, keybind manager
 - **Preload bridge** (`preload.ts`): Exposes `window.backspace` API via `contextBridge` with full sandbox isolation (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`)
-- **Renderer**: The standard web client, detecting Electron via `typeof window.backspace !== 'undefined'`
+- **Renderer**: A production web client bundled with the desktop app, detecting Electron via `typeof window.backspace !== 'undefined'`
+
+### Bundled interface
+
+Desktop releases include their own web interface under `resources/web-client`.
+`beforePack.cjs` builds it from the current shared/web sources; `afterPack.js`
+checks every copied file against a versioned SHA-256 manifest. Updating the
+portable EXE or extracted application updates the interface too. The instance
+can keep its official web client and server code.
+
+The window retains the selected instance's HTTP(S) origin. `bundledWebClient.ts`
+selects only allowlisted packaged static files and application routes at that
+origin. `bundledClientSession.ts` supplies those responses through Chromium's
+request interception; every other request continues through Chromium normally,
+preserving CORS, cookie and redirect behavior. API calls, uploads, federation requests and WebSocket connections still
+go to the actual servers. Login storage remains scoped to the real instance;
+the app removes stale workers and UI caches without clearing tokens/cookies.
+The preload marks this mode with `bundledWebClient`, disabling browser service
+worker registration/updates in `SwAutoUpdate`. Interface updates are delivered
+through desktop releases instead.
+
+An updated streamer must publish the H.264 quality layers before an updated
+viewer can select them. No server logic or LiveKit configuration change is
+required. Compatibility with future instance API changes still needs to be
+maintained by desktop releases.
 
 The desktop package compiles to CommonJS (`module: "commonjs"`) targeting ES2022. Electron version: 43.4+ to honor `restrictOwnAudio` in the custom screen-share handler (see [voice.md](voice.md#system-audio-loopback-shareaudio)).
 
