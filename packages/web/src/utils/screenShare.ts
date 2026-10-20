@@ -1,4 +1,5 @@
-import { Room, Track, BackupCodecPolicy, AudioPresets, ConnectionState } from 'livekit-client';
+import { Room, Track, BackupCodecPolicy, AudioPresets, ConnectionState, VideoPreset } from 'livekit-client';
+import type { LocalTrackPublication, TrackPublishOptions } from 'livekit-client';
 import { useVoiceStore } from '../stores/voiceStore';
 import type { ScreenShareConfig, ScreenShareAudioState } from '../stores/voiceStore';
 import { getStreamHostLimits } from './streamHostLimits';
@@ -33,7 +34,8 @@ export interface ScreenShareBuildResult {
   publish: {
     videoCodec: 'vp9' | 'h264';
     videoEncoding: { maxBitrate: number; maxFramerate: number };
-    simulcast: false;
+    simulcast: boolean;
+    screenShareSimulcastLayers?: VideoPreset[];
     backupCodec?: { codec: 'vp8' | 'h264'; encoding: { maxBitrate: number; maxFramerate: number } };
     backupCodecPolicy?: BackupCodecPolicy;
     audioPreset: typeof AudioPresets.musicHighQualityStereo;
@@ -197,7 +199,12 @@ export function buildScreenShareOptions(savedConfig: ScreenShareConfig): ScreenS
     publish: {
       videoCodec: config.codec,
       videoEncoding: { maxBitrate: bps, maxFramerate: fps },
-      simulcast: false,
+      // VP9 screen shares use one spatial layer in the deployed LiveKit SDK.
+      // H.264 can instead send independent copies at the same resolution/FPS.
+      simulcast: config.codec === 'h264',
+      ...(config.codec === 'h264' && captureWidth > 0 && captureHeight > 0 ? {
+        screenShareSimulcastLayers: buildBitrateLayers(captureWidth, captureHeight, bps, fps),
+      } : {}),
       backupCodec: {
         codec: 'vp8' as const,
         encoding: { maxBitrate: backupBps, maxFramerate: backupFps },
@@ -211,10 +218,14 @@ export function buildScreenShareOptions(savedConfig: ScreenShareConfig): ScreenS
     overdrive: {
       maxBitrate: bps,
       maxFramerate: fps,
-      degradationPreference: mode === 'text' ? 'maintain-resolution' : 'balanced',
+      degradationPreference: config.codec === 'h264' || mode === 'text' ? 'maintain-resolution' : 'balanced',
     },
     contentHint: mode === 'text' ? 'detail' : 'motion',
   };
+}
+
+function buildBitrateLayers(width: number, height: number, maxBitrate: number, fps: number): VideoPreset[] {
+  return [4, 2].map(divisor => new VideoPreset(width, height, Math.round(maxBitrate / divisor), fps));
 }
 
 // ---------------------------------------------------------------------------
@@ -229,17 +240,103 @@ export function resolveNativeOverdrive(
 ): void {
   const limits = getStreamHostLimits();
   const config = effectiveScreenShareConfig(savedConfig, limits);
-  if (config.height !== 'native' || config.customBitrateKbps != null || !mediaTrack) return;
-  const settings = mediaTrack.getSettings();
-  if (!settings.width || !settings.height) return;
+  const settings = mediaTrack?.getSettings?.();
+  if (config.height === 'native' && config.customBitrateKbps == null && settings?.width && settings.height) {
+    const nativeKbps = computeNativeBitrate(settings.width, settings.height, config.fps, limits.bitrateMatrixOverrides);
+    const clampedKbps = Math.min(Math.max(nativeKbps, limits.minBitrateKbps), limits.maxBitrateKbps);
 
-  const nativeKbps = computeNativeBitrate(settings.width, settings.height, config.fps, limits.bitrateMatrixOverrides);
-  const clampedKbps = Math.min(Math.max(nativeKbps, limits.minBitrateKbps), limits.maxBitrateKbps);
+    // Resolve native bitrate before publish as well as after capture restarts.
+    opts.overdrive.maxBitrate = clampedKbps * 1000;
+    opts.publish.videoEncoding.maxBitrate = clampedKbps * 1000;
+  }
+  const { maxBitrate, maxFramerate } = opts.publish.videoEncoding;
+  if (opts.publish.simulcast) {
+    // Capture can be ultrawide, portrait or smaller than the requested preset.
+    // Matching its actual dimensions keeps every encoding at scale 1.
+    const width = settings?.width ?? opts.capture.width;
+    const height = settings?.height ?? opts.capture.height;
+    if (width > 0 && height > 0) {
+      opts.publish.screenShareSimulcastLayers = buildBitrateLayers(width, height, maxBitrate, maxFramerate);
+    }
+  }
+  if (opts.publish.backupCodec) {
+    opts.publish.backupCodec.encoding.maxBitrate = Math.round(maxBitrate * (
+      opts.publish.backupCodec.encoding.maxFramerate / maxFramerate
+    ));
+  }
+}
 
-  // Convert to bps at the mutation point
-  const bps = clampedKbps * 1000;
-  opts.overdrive.maxBitrate = bps;
-  opts.publish.videoEncoding.maxBitrate = bps;
+/** SDK caches used when dynacast re-enables a layer or a capture changes size. */
+interface ScreenShareSenderState {
+  publishOptions?: TrackPublishOptions;
+  encodings?: RTCRtpEncodingParameters[];
+  simulcastCodecs?: Map<string, {
+    sender?: RTCRtpSender;
+    encodings?: RTCRtpEncodingParameters[];
+  }>;
+  senderLock?: { lock(): Promise<() => void> };
+}
+
+function stageScreenSharePublishOptions(
+  publication: LocalTrackPublication,
+  state: ScreenShareSenderState,
+  mediaTrack: MediaStreamTrack | null,
+  options: OverdriveOptions,
+): Array<{ cached: TrackPublishOptions; patch: TrackPublishOptions }> {
+  const dimensions = mediaTrack?.getSettings?.();
+  // The publication supplies options on a full reconnect; the track supplies
+  // them on a capture restart. Stage the same caps being sent to the sender,
+  // then commit them only when that write succeeds.
+  const updates: Array<{ cached: TrackPublishOptions; patch: TrackPublishOptions }> = [];
+  for (const cached of [publication.options, state.publishOptions]) {
+    if (!cached) continue;
+    const patch: TrackPublishOptions = {
+      videoEncoding: { maxBitrate: options.maxBitrate, maxFramerate: options.maxFramerate },
+      screenShareEncoding: { maxBitrate: options.maxBitrate, maxFramerate: options.maxFramerate },
+      degradationPreference: options.degradationPreference,
+    };
+    if (cached.simulcast && dimensions?.width && dimensions.height) {
+      patch.screenShareSimulcastLayers = buildBitrateLayers(
+        dimensions.width, dimensions.height, options.maxBitrate, options.maxFramerate,
+      );
+    }
+    if (cached.backupCodec && typeof cached.backupCodec === 'object') {
+      const maxFramerate = Math.min(options.maxFramerate, 30);
+      patch.backupCodec = {
+        ...cached.backupCodec,
+        encoding: {
+          maxFramerate,
+          maxBitrate: Math.round(options.maxBitrate * maxFramerate / options.maxFramerate),
+        },
+      };
+    }
+    updates.push({ cached, patch });
+  }
+  return updates;
+}
+
+function updateEncodingCaps(
+  encodings: RTCRtpEncodingParameters[],
+  options: OverdriveOptions,
+  preservePausedSentinels: boolean,
+): void {
+  encodings.forEach((encoding, index) => {
+    // Firefox represents a paused layer by bitrate/resolution sentinels as
+    // well as active=false. Leave those in place until LiveKit resumes it.
+    if (preservePausedSentinels && encoding.active === false && encoding.maxBitrate === 10) return;
+    const divisor = encodings.length === 1 ? 1
+      : encoding.rid === 'q' ? 4
+        : encoding.rid === 'h' && encodings.length === 3 ? 2
+          : encoding.rid === 'f' ? 1
+            : 2 ** (encodings.length - index - 1);
+    encoding.maxBitrate = Math.round(options.maxBitrate / divisor);
+    encoding.maxFramerate = options.maxFramerate;
+    encoding.priority = 'high';
+    encoding.networkPriority = 'high';
+    // Only independent simulcast encodings have a RID. VP9's single SVC
+    // encoding must retain its scalability configuration.
+    if (encodings.length > 1 && encoding.rid) encoding.scaleResolutionDownBy = 1;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +351,7 @@ export async function applyOverdrive(
   try {
     const pub = room.localParticipant.getTrackPublications().find(p => p.source === source);
     if (!pub?.track) return false;
+    const localPublication = pub as LocalTrackPublication;
 
     const pc = getPublisherPC(room);
     if (!pc) return false;
@@ -263,29 +361,57 @@ export async function applyOverdrive(
     const sender = senders.find(s => s.track?.id === pubMediaTrack?.id);
     if (!sender) return false;
 
-    const params = sender.getParameters();
-    if (!params.encodings?.length) return false;
-    // Before LiveKit finishes configuring the sender, Chromium can expose one
-    // empty placeholder encoding. Any values written there are replaced by
-    // LiveKit's sendEncodings, so report "not ready" and let the bounded
-    // scheduler retry after negotiation advances.
-    if (params.encodings.length === 1 && Object.keys(params.encodings[0]!).length === 0) {
-      return false;
+    const state = pub.track as unknown as ScreenShareSenderState;
+    const unlock = await state.senderLock?.lock();
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings?.length) return false;
+      // Before negotiation Chromium can expose an empty placeholder that
+      // LiveKit will replace, so let the bounded scheduler retry instead.
+      if (params.encodings.length === 1 && Object.keys(params.encodings[0]!).length === 0) return false;
+
+      const cachedUpdates = source === Track.Source.ScreenShare
+        ? stageScreenSharePublishOptions(localPublication, state, pubMediaTrack, options) : [];
+      if (source === Track.Source.ScreenShare) {
+        updateEncodingCaps(params.encodings, options, true);
+      } else {
+        const highest = params.encodings[params.encodings.length - 1]!;
+        highest.maxBitrate = options.maxBitrate;
+        highest.maxFramerate = options.maxFramerate;
+        highest.priority = 'high';
+        highest.networkPriority = 'high';
+      }
+      params.degradationPreference = options.degradationPreference;
+      await sender.setParameters(params);
+      if (source === Track.Source.ScreenShare) {
+        for (const { cached, patch } of cachedUpdates) {
+          const primaryPatch = { ...patch };
+          delete primaryPatch.backupCodec;
+          Object.assign(cached, primaryPatch);
+        }
+        if (state.encodings) updateEncodingCaps(state.encodings, options, false);
+        for (const backup of state.simulcastCodecs?.values() ?? []) {
+          if (!backup.sender || backup.sender === sender) continue;
+          const backupOptions = {
+            ...options,
+            maxFramerate: Math.min(options.maxFramerate, 30),
+            maxBitrate: Math.round(options.maxBitrate * Math.min(options.maxFramerate, 30) / options.maxFramerate),
+          };
+          const backupParams = backup.sender.getParameters();
+          if (backupParams.encodings?.length) {
+            updateEncodingCaps(backupParams.encodings, backupOptions, true);
+            await backup.sender.setParameters(backupParams);
+            if (backup.encodings) updateEncodingCaps(backup.encodings, backupOptions, false);
+          }
+        }
+        for (const { cached, patch } of cachedUpdates) {
+          if (patch.backupCodec !== undefined) cached.backupCodec = patch.backupCodec;
+        }
+      }
+      return true;
+    } finally {
+      unlock?.();
     }
-
-    // Target the highest-quality layer. With simulcast, encodings[0] is the
-    // lowest layer; our overdrive must hit the top layer so the custom bitrate
-    // slider controls the full-resolution stream, not the quarter-res one.
-    // For non-simulcast tracks (single encoding), length - 1 === 0.
-    const idx = params.encodings.length - 1;
-    params.encodings[idx]!.maxBitrate = options.maxBitrate;
-    params.encodings[idx]!.maxFramerate = options.maxFramerate;
-    params.encodings[idx]!.priority = 'high';
-    params.encodings[idx]!.networkPriority = 'high';
-    (params as any).degradationPreference = options.degradationPreference;
-
-    await sender.setParameters(params);
-    return true;
   } catch (err) {
     console.warn('[ScreenShare] Failed to apply overdrive:', err);
     return false;
@@ -412,6 +538,38 @@ let _publishedScreenShareCodec: 'vp9' | 'h264' | 'vp8' | null = null;
 /** Requested codec of the current publication, used only to decide whether republish is needed. */
 let _requestedPublishedScreenShareCodec: 'vp9' | 'h264' | null = null;
 
+// The deployed SFU cannot update advertised layer bitrates after AddTrack.
+// Keep the confirmed publication separately from LiveKit's mutable sender
+// caches, so changes can republish the existing capture with fresh metadata.
+const publishedScreenShareSignatures = new WeakMap<Room, ReadonlyArray<string | number>>();
+
+function screenSharePublishSignature(
+  opts: ScreenShareBuildResult,
+  mediaTrack: MediaStreamTrack | null | undefined,
+): ReadonlyArray<string | number> {
+  const dimensions = mediaTrack?.getSettings?.();
+  return [
+    opts.publish.videoCodec,
+    opts.publish.videoEncoding.maxBitrate,
+    opts.publish.videoEncoding.maxFramerate,
+    opts.capture.width,
+    opts.capture.height,
+    dimensions?.width ?? 0,
+    dimensions?.height ?? 0,
+  ];
+}
+
+/** Whether encoding settings need fresh SFU metadata through a republish. */
+export function screenSharePublishNeedsRefresh(room: Room, opts: ScreenShareBuildResult): boolean {
+  const published = publishedScreenShareSignatures.get(room);
+  if (!published) return false;
+  const publication = room.localParticipant.getTrackPublications()
+    .find(item => item.source === Track.Source.ScreenShare);
+  if (!publication?.track) return false;
+  const next = screenSharePublishSignature(opts, getMediaStreamTrack(publication.track));
+  return published.some((value, index) => value !== next[index]);
+}
+
 export function getPublishedScreenShareCodec(): 'vp9' | 'h264' | 'vp8' | null {
   return _publishedScreenShareCodec;
 }
@@ -466,6 +624,7 @@ export async function publishScreenShare(
   const needsH264SdpPatch = config.codec === 'h264';
   const videoTrack = stream.getVideoTracks()[0];
   if (!videoTrack || videoTrack.readyState !== 'live') return false;
+  resolveNativeOverdrive(videoTrack, config, opts);
   const capturedAudio = stream.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
   // The toggle as it stands now, not as it stood at capture: audio captured
   // before the user turned System Audio off is not sent.
@@ -488,6 +647,10 @@ export async function publishScreenShare(
       // Without this, the default ScreenSharePresets.h1080fps15 caps at 15fps.
       screenShareEncoding: opts.publish.videoEncoding,
       simulcast: opts.publish.simulcast,
+      degradationPreference: opts.overdrive.degradationPreference,
+      ...(opts.publish.screenShareSimulcastLayers ? {
+        screenShareSimulcastLayers: opts.publish.screenShareSimulcastLayers,
+      } : {}),
       ...(opts.publish.backupCodec ? {
         backupCodec: opts.publish.backupCodec,
         backupCodecPolicy: opts.publish.backupCodecPolicy,
@@ -497,6 +660,7 @@ export async function publishScreenShare(
     if (audioToPublish) await publishScreenShareAudioTrack(room, audioToPublish);
 
     _requestedPublishedScreenShareCodec = opts.publish.videoCodec;
+    publishedScreenShareSignatures.set(room, screenSharePublishSignature(opts, videoTrack));
     _publishedScreenShareCodec = null;
     _liveSource = source;
     // A published share is settled: nothing is left to wait for.

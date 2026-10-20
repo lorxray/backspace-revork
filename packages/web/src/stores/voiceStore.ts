@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import type { StreamViewerQualityChoice, StreamViewerQualityOption } from '../utils/streamViewerQuality';
 import type { ParticipantInfo } from '../hooks/useLiveKit';
 import { AudioManager } from '../audio/AudioManager';
 import { useSpaceStore, getChannelOrigin, getMyUserIdForOrigin } from './spaceStore';
@@ -140,6 +141,11 @@ export interface VoiceState {
   streamVolumes: Map<string, number>;       // userId → 0-200 (100 default)
   streamMutes: Map<string, boolean>;        // userId → muted?
   watchingStreams: Set<string>;             // userIds we're watching
+  streamViewerQualities: Map<string, StreamViewerQualityChoice>; // LiveKit identity, session only
+  streamViewerQualityOptions: Map<string, readonly StreamViewerQualityOption[]>;
+  setStreamViewerQuality: (identity: string, quality: StreamViewerQualityChoice) => void;
+  setStreamViewerQualityOptions: (identity: string, options: readonly StreamViewerQualityOption[]) => void;
+  clearStreamViewerQuality: (identity: string) => void;
   unwatchedCameras: Set<string>;           // userIds whose cameras we've opted out of
   // Sharer's LiveKit identity → watcher LiveKit identities (in-memory only).
   // Identities, not user ids: a user id differs per instance, the identity is
@@ -340,6 +346,28 @@ export const useVoiceStore = create<VoiceState>()(
       streamVolumes: new Map(),
       streamMutes: new Map(),
       watchingStreams: new Set(),
+      streamViewerQualities: new Map(),
+      streamViewerQualityOptions: new Map(),
+      setStreamViewerQuality: (identity, quality) => set((state) => {
+        if ((state.streamViewerQualities.get(identity) ?? 'auto') === quality) return state;
+        const next = new Map(state.streamViewerQualities);
+        if (quality === 'auto') next.delete(identity);
+        else next.set(identity, quality);
+        return { streamViewerQualities: next };
+      }),
+      setStreamViewerQualityOptions: (identity, options) => set((state) => {
+        const next = new Map(state.streamViewerQualityOptions);
+        if (options.length) next.set(identity, options);
+        else next.delete(identity);
+        return { streamViewerQualityOptions: next };
+      }),
+      clearStreamViewerQuality: (identity) => set((state) => {
+        const qualities = new Map(state.streamViewerQualities);
+        const options = new Map(state.streamViewerQualityOptions);
+        qualities.delete(identity);
+        options.delete(identity);
+        return { streamViewerQualities: qualities, streamViewerQualityOptions: options };
+      }),
       unwatchedCameras: new Set(),
       streamWatchers: new Map(),
       recordStreamWatch: (sharerIdentity, watcherIdentity, watching) => {
@@ -418,7 +446,14 @@ export const useVoiceStore = create<VoiceState>()(
         set((state) => {
           const newSet = new Set(state.watchingStreams);
           newSet.delete(userId);
-          return { watchingStreams: newSet };
+          const qualities = new Map(state.streamViewerQualities);
+          const options = new Map(state.streamViewerQualityOptions);
+          for (const participant of state.participants) {
+            if (participant.userId !== userId) continue;
+            qualities.delete(participant.identity);
+            options.delete(participant.identity);
+          }
+          return { watchingStreams: newSet, streamViewerQualities: qualities, streamViewerQualityOptions: options };
         });
       },
       unwatchCamera: (userId) => {
@@ -703,6 +738,8 @@ export const useVoiceStore = create<VoiceState>()(
         streamVolumes: new Map(),
         streamMutes: new Map(),
         watchingStreams: new Set(),
+        streamViewerQualities: new Map(),
+        streamViewerQualityOptions: new Map(),
         unwatchedCameras: new Set(),
         streamWatchers: new Map(),
         // Space-enforced restrictions
@@ -767,6 +804,8 @@ export const useVoiceStore = create<VoiceState>()(
             streamVolumes: new Map(),
             streamMutes: new Map(),
             watchingStreams: new Set(),
+            streamViewerQualities: new Map(),
+            streamViewerQualityOptions: new Map(),
             unwatchedCameras: new Set(),
             streamWatchers: new Map(),
             voiceUsers,
@@ -812,6 +851,8 @@ export const useVoiceStore = create<VoiceState>()(
           streamVolumes: new Map(),
           streamMutes: new Map(),
           watchingStreams: new Set(),
+          streamViewerQualities: new Map(),
+          streamViewerQualityOptions: new Map(),
           unwatchedCameras: new Set(),
           streamWatchers: new Map(),
           micPermissionDenied: false,
@@ -850,6 +891,8 @@ export const useVoiceStore = create<VoiceState>()(
         streamVolumes: new Map(),
         streamMutes: new Map(),
         watchingStreams: new Set(),
+        streamViewerQualities: new Map(),
+        streamViewerQualityOptions: new Map(),
         unwatchedCameras: new Set(),
         streamWatchers: new Map(),
         spaceMutedUserIds: new Set(),
@@ -980,6 +1023,8 @@ export const useVoiceStore = create<VoiceState>()(
         merged.streamVolumes = currentState.streamVolumes;
         merged.streamMutes = currentState.streamMutes;
         merged.watchingStreams = currentState.watchingStreams;
+        merged.streamViewerQualities = currentState.streamViewerQualities;
+        merged.streamViewerQualityOptions = currentState.streamViewerQualityOptions;
         merged.unwatchedCameras = currentState.unwatchedCameras;
         return merged;
       },

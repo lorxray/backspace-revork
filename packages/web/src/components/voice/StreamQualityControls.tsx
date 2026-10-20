@@ -228,6 +228,9 @@ export function StreamQualityControls() {
             );
           })}
         </div>
+        <p className="mt-1.5 text-[11px] text-txt-tertiary">
+          {t(config.codec === 'h264' ? 'voice:streamSettings.viewerBitrateH264' : 'voice:streamSettings.viewerBitrateVp9')}
+        </p>
       </div>
 
       {/* Bitrate — Auto | Custom pills like every other row; the slider only exists in Custom */}

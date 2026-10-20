@@ -117,6 +117,8 @@
       "text": "Text"
     },
     "codec": "Codec",
+    "viewerBitrateH264": "H264 can provide separate bitrate levels for viewers at the same resolution. Extra levels increase encoding and upload use.",
+    "viewerBitrateVp9": "VP9 offers only original quality on the current server. Choose H264 to offer viewer bitrate levels.",
     "codecOption": {
       "vp9": "VP9",
       "h264": "H264"
@@ -164,6 +166,21 @@
     "watchShort": "Watch",
     "mute": "Mute Stream",
     "isStreaming": "{{name}} is streaming"
+  },
+  "viewerQuality": {
+    "button": "Quality",
+    "buttonLabel": "Quality: {{quality}}",
+    "title": "Playback quality",
+    "auto": "Auto",
+    "original": "Original",
+    "medium": "Medium",
+    "economy": "Economy",
+    "autoDescription": "Adapts to your connection",
+    "sourceDescription": "Source stream settings",
+    "resolution": "{{height}}p",
+    "bitrateLimit": "Up to {{bitrate}}",
+    "localOnly": "Changes only your view",
+    "sourceOnly": "This stream offers only original quality."
   },
   "streamDiagnostics": {
     "publisherNetwork": "The streamer's network is unstable",

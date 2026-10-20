@@ -34,6 +34,7 @@ import {
   scheduleScreenShareOverdrive,
   republishScreenShare,
   getRequestedPublishedScreenShareCodec,
+  screenSharePublishNeedsRefresh,
   handleScreenShareUnpublished,
   handleScreenShareAudioUnpublished,
   settleScreenShareAfterReconnect,
@@ -43,6 +44,7 @@ import {
 import { encodeStreamWatch, parseShareSignal, parseStreamWatch, streamWatchFor, streamWatchKey } from '../utils/streamWatchProtocol';
 import { StreamRepublishTracker } from '../utils/streamRepublish';
 import { StreamResumeMemory, type RememberedStream } from '../utils/streamResume';
+import { StreamViewerQualityController } from '../utils/streamViewerQuality';
 import { getMediaStreamTrack } from '../utils/livekitInternals';
 import { deactivate as deactivateHwOverdrive } from '../utils/hwOverdrive';
 
@@ -55,11 +57,14 @@ let _activeRoom: Room | null = null;
 const _republishTrackers = new WeakMap<Room, StreamRepublishTracker>();
 /** The shares each room's viewer may watch again after a full reconnect (`StreamResumeMemory`). */
 const _resumeMemories = new WeakMap<Room, StreamResumeMemory>();
+const _viewerQualityCleanup = new WeakMap<Room, () => void>();
 
 /** Forget a room's per-sharer stream state: the room is being left. */
 function clearRoomStreamState(room: Room): void {
   _republishTrackers.get(room)?.clear();
   _resumeMemories.get(room)?.clear();
+  _viewerQualityCleanup.get(room)?.();
+  _viewerQualityCleanup.delete(room);
 }
 /**
  * Serialises screen-share / camera track updates.
@@ -154,6 +159,7 @@ export function deriveGridTiles(participants: ParticipantInfo[]): GridTile[] {
 }
 
 export function setStreamSubscription(room: Room | null, targetIdentity: string, subscribed: boolean) {
+  if (!subscribed) useVoiceStore.getState().clearStreamViewerQuality(targetIdentity);
   if (!room) return;
   const rp = room.remoteParticipants.get(targetIdentity);
   if (!rp) return;
@@ -210,7 +216,11 @@ function rememberWatchedShare(memory: StreamResumeMemory, identity: string): voi
   const userId = resolveParticipantUserId(identity);
   const state = useVoiceStore.getState();
   if (!state.watchingStreams.has(userId)) return;
-  memory.rememberEnded(identity, { volume: state.streamVolumes.get(userId), muted: state.streamMutes.get(userId) });
+  memory.rememberEnded(identity, {
+    volume: state.streamVolumes.get(userId),
+    muted: state.streamMutes.get(userId),
+    quality: state.streamViewerQualities.get(identity),
+  });
 }
 
 /**
@@ -225,6 +235,7 @@ function resumeRemoteStream(room: Room, identity: string, stream: RememberedStre
   state.watchStream(userId);
   if (stream.volume !== undefined) state.setStreamVolume(userId, stream.volume);
   if (stream.muted !== undefined) state.setStreamMute(userId, stream.muted);
+  if (stream.quality !== undefined) state.setStreamViewerQuality(identity, stream.quality);
   setStreamSubscription(room, identity, true);
   room.localParticipant
     .publishData(encodeStreamWatch(streamWatchFor({ userId, identity }, true)), { reliable: true })
@@ -248,6 +259,7 @@ function endRemoteStream(identity: string): void {
   state.unwatchStream(userId);
   state.clearStreamVolume(userId);
   state.clearStreamMute(userId);
+  state.clearStreamViewerQuality(identity);
 }
 
 let _connectGeneration = 0;
@@ -751,7 +763,7 @@ export function useLiveKit() {
     useVoiceStore.getState().setSpeakingParticipants(new Set());
     // Camera and screen share belong to the room being left: nothing of either
     // is published in the next one until the user starts it there.
-    useVoiceStore.setState({ isCameraOn: false, isScreenSharing: false });
+    useVoiceStore.setState({ isCameraOn: false, isScreenSharing: false, streamViewerQualities: new Map(), streamViewerQualityOptions: new Map() });
     setIsConnected(false);
     setIsConnecting(true);
     setConnectionState(ConnectionState.Connecting);
@@ -826,6 +838,18 @@ export function useLiveKit() {
       _republishTrackers.set(newRoom, republish);
       const resume = new StreamResumeMemory();
       _resumeMemories.set(newRoom, resume);
+      const viewerQualityControllers = new Map<RemoteTrackPublication, { identity: string; controller: StreamViewerQualityController }>();
+      const unsubscribeQuality = useVoiceStore.subscribe((state, previous) => {
+        if (state.streamViewerQualities === previous.streamViewerQualities) return;
+        for (const { identity, controller } of viewerQualityControllers.values()) {
+          controller.setQuality(state.streamViewerQualities.get(identity) ?? 'auto');
+        }
+      });
+      _viewerQualityCleanup.set(newRoom, () => {
+        unsubscribeQuality();
+        for (const { controller } of viewerQualityControllers.values()) controller.dispose();
+        viewerQualityControllers.clear();
+      });
       // Set when the room goes Reconnecting, which is a full reconnect: a
       // signal resume only goes SignalReconnecting.
       let fullReconnect = false;
@@ -873,6 +897,14 @@ export function useLiveKit() {
         useVoiceStore.getState().clearVoiceUserStatus(userId);
       });
       newRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (isCurrent() && publication.source === Track.Source.ScreenShare) {
+          viewerQualityControllers.get(publication)?.controller.dispose();
+          const controller = new StreamViewerQualityController(publication, (options) => {
+            if (isCurrent()) useVoiceStore.getState().setStreamViewerQualityOptions(participant.identity, options);
+          });
+          viewerQualityControllers.set(publication, { identity: participant.identity, controller });
+          controller.setQuality(useVoiceStore.getState().streamViewerQualities.get(participant.identity) ?? 'auto');
+        }
         // LiveKit auto-attaches a hidden <audio> element for subscribed audio tracks.
         // GlobalAudioRenderer is the sole audio playback path with volume/attenuation/boost.
         // Detach LiveKit's internal element to prevent double-playback.
@@ -881,7 +913,12 @@ export function useLiveKit() {
         }
         guardedUpdate();
       });
-      newRoom.on(RoomEvent.TrackUnsubscribed, (track) => {
+      newRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        viewerQualityControllers.get(publication)?.controller.dispose();
+        viewerQualityControllers.delete(publication);
+        if (isCurrent() && publication.source === Track.Source.ScreenShare) {
+          useVoiceStore.getState().setStreamViewerQualityOptions(participant.identity, []);
+        }
         if (track.kind === Track.Kind.Audio) {
           (track as RemoteAudioTrack).detach();
         }
@@ -995,6 +1032,8 @@ export function useLiveKit() {
       });
       newRoom.on(RoomEvent.TrackUnpublished, (publication: RemoteTrackPublication, participant: RemoteParticipant) => {
         if (!isCurrent()) return;
+        viewerQualityControllers.get(publication)?.controller.dispose();
+        viewerQualityControllers.delete(publication);
         // An announced republish keeps the watch and the stream's audio
         // settings for the next publication; anything else ends the share.
         if (
@@ -1074,8 +1113,7 @@ export function useLiveKit() {
         // A full reconnect that gave up: a share it had withdrawn ends here.
         settleScreenShareAfterReconnect(newRoom);
         if (roomRef.current !== newRoom) return;
-        republish.clear();
-        resume.clear();
+        clearRoomStreamState(newRoom);
         // The SDK emits Disconnected before rejecting an initial connect.
         // Keep that attempt current so its catch can report the failure.
         if (!initialConnectPending) _connectGeneration++;
@@ -1089,7 +1127,7 @@ export function useLiveKit() {
         // from seeing intermediate states (e.g., participants empty but still "connected"
         // → triggers user_leave sound before the disconnect sound).
         useVoiceStore.getState().setSpeakingParticipants(new Set());
-        useVoiceStore.setState({ participants: [], isLiveKitConnected: false });
+        useVoiceStore.setState({ participants: [], isLiveKitConnected: false, streamViewerQualities: new Map(), streamViewerQualityOptions: new Map() });
         useVoiceStore.getState().setVoiceConnectionStatus('disconnected');
 
         // Semantic terminal reasons must never auto-retry. An exhausted network
@@ -1180,7 +1218,7 @@ export function useLiveKit() {
     setConnectionState(ConnectionState.Disconnected);
     useVoiceStore.getState().setVoiceConnectionStatus('disconnected');
     useVoiceStore.getState().setSpeakingParticipants(new Set());
-    useVoiceStore.setState({ participants: [], isLiveKitConnected: false });
+    useVoiceStore.setState({ participants: [], isLiveKitConnected: false, streamViewerQualities: new Map(), streamViewerQualityOptions: new Map() });
   }, []);
 
   const toggleMic = useCallback(async () => { 
@@ -1204,14 +1242,6 @@ export function useLiveKit() {
         // audio track, never the video.
         await syncScreenShareAudio(room);
         const opts = buildScreenShareOptions(screenShareConfig);
-        // Codec changed mid-stream — the codec is baked into SDP negotiation,
-        // so republish the same track under the new options (no re-capture).
-        const publishedCodec = getRequestedPublishedScreenShareCodec();
-        if (publishedCodec && publishedCodec !== opts.publish.videoCodec) {
-          await republishScreenShare(room);
-          return;
-        }
-
         const screenPub = room.localParticipant.getTrackPublications().find(p => p.source === Track.Source.ScreenShare);
         if (screenPub?.videoTrack) {
           const mediaTrack = getMediaStreamTrack(screenPub.videoTrack);
@@ -1227,6 +1257,14 @@ export function useLiveKit() {
           }
           // For native mode, recompute overdrive bitrate from actual track dimensions
           resolveNativeOverdrive(mediaTrack ?? null, screenShareConfig, opts);
+          // The pinned SFU does not broadcast changed encoding caps. A fresh
+          // publication carries accurate layer descriptors to every viewer;
+          // the existing bridge keeps watches/preferences through the swap.
+          const publishedCodec = getRequestedPublishedScreenShareCodec();
+          if ((publishedCodec && publishedCodec !== opts.publish.videoCodec) || screenSharePublishNeedsRefresh(room, opts)) {
+            await republishScreenShare(room);
+            return;
+          }
           await applyOverdrive(room, Track.Source.ScreenShare, opts.overdrive);
         }
       }

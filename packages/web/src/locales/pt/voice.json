@@ -117,6 +117,8 @@
       "text": "Texto"
     },
     "codec": "Codec",
+    "viewerBitrateH264": "O H264 permite níveis de taxa de bits para os espectadores na mesma resolução. Níveis adicionais aumentam o uso de codificação e upload.",
+    "viewerBitrateVp9": "O VP9 oferece apenas a qualidade original no servidor atual. Escolha H264 para oferecer taxas de bits aos espectadores.",
     "codecOption": {
       "vp9": "VP9",
       "h264": "H264"
@@ -164,6 +166,21 @@
     "watchShort": "Assistir",
     "mute": "Silenciar transmissão",
     "isStreaming": "{{name}} está transmitindo"
+  },
+  "viewerQuality": {
+    "button": "Qualidade",
+    "buttonLabel": "Qualidade: {{quality}}",
+    "title": "Qualidade de reprodução",
+    "auto": "Automática",
+    "original": "Original",
+    "medium": "Média",
+    "economy": "Econômica",
+    "autoDescription": "Adapta-se à sua conexão",
+    "sourceDescription": "Configurações do fluxo original",
+    "resolution": "{{height}}p",
+    "bitrateLimit": "Até {{bitrate}}",
+    "localOnly": "Altera apenas a sua reprodução",
+    "sourceOnly": "Este fluxo oferece apenas a qualidade original."
   },
   "streamDiagnostics": {
     "publisherNetwork": "A rede de quem transmite está instável",

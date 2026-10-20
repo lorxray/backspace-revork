@@ -381,9 +381,10 @@ ScreenShareConfig {
 1. Resolve bitrate from matrix (custom > override > default > native estimate)
 2. Clamp to instance limits (minBitrateKbps, maxBitrateKbps)
 3. Select the persisted codec: VP9 (default) or H.264
-4. Configure a VP8 simulcast backup at reduced framerate/bitrate; room dynacast pauses it when no subscriber needs it
-5. Content hint: `'detail'` (text) or `'motion'` (gaming)
-6. Degradation preference: preserve resolution for text, balanced for gaming
+4. For H.264, publish up to three independent encodings at the actual captured resolution and FPS, capped at B, B/2 and B/4. Native capture resolves dimensions and bitrate before publication. Small sources may have fewer encodings because of SDK limits.
+5. Configure a VP8 compatibility backup; room dynacast pauses it when no subscriber needs it. The SDK publishes this backup as a single encoding.
+6. Content hint: `'detail'` (text) or `'motion'` (gaming)
+7. Degradation preference: preserve resolution for viewer-selectable H.264 layers and text; balanced for VP9 gaming
 
 ### Native Mode
 - Captures at display's full resolution
@@ -412,6 +413,43 @@ ScreenShareConfig {
   sender retry. The non-standard
   `minBitrate` member was removed because Chromium discarded it during WebIDL
   dictionary conversion; it never enforced a bitrate floor.
+
+### Viewer quality
+
+Watched remote stream tiles show a **Quality** menu at bottom right, initially
+**Auto**. H.264 offers **Original**, **Medium** and **Economy** using the published
+layer caps: for a 30,000 kbps source, 30,000 / 15,000 / 7,500 kbps at the same
+captured resolution and FPS. These are ceilings; SFU congestion control can
+forward a lower layer. Each independent encoding adds publisher work and upload
+traffic while consumed; dynacast can pause unused encodings.
+
+The menu reads layer descriptors for the codec confirmed by receiver stats,
+never measured throughput. VP9 screen share in the current SDK and single-layer
+VP8 backups offer Auto and Original only. The publisher keeps its resolution,
+FPS, codec and custom-bitrate settings; the codec control explains that selecting
+H.264 enables viewer bitrate choices on the existing SFU.
+
+`StreamViewerQualityController` owns each subscription independently of tile
+and PiP mounts. For equal-resolution layers, and explicit manual choices on
+older streams, a guarded SDK bridge removes only the publication's adaptive
+dimension listener: otherwise viewport dimensions override `setVideoQuality()`.
+Visibility/background pausing still belongs to LiveKit, and cameras keep normal
+adaptive dimensions. Auto uses the highest quality cap and SFU bandwidth
+adaptation. Unsupported SDK internals fail back to source-only controls.
+
+Viewer preferences are session-only and keyed by LiveKit identity. They survive
+announced republishing and full reconnects, and reset when watching stops or the
+viewer joins another room. Encoding-cap, FPS or resolution changes republish the
+existing capture through the same bridge as codec changes, without another
+capture prompt. This supplies fresh AddTrack metadata; the pinned SFU ignores
+the SDK's deprecated `updateLayers` message. Audio and content-mode changes do
+not require republishing. Sender caches commit only after `setParameters()`
+succeeds and preserve dynacast pause state.
+
+For visual QA without a call, open `dev-stream-viewer.html?lang=ru` on the web dev
+server. `?scene=source` shows the single-layer fallback. This workbench exercises
+the real React control; it is not a substitute for a two-client SFU call when
+checking browser/hardware encoding, actual frame dimensions and throughput.
 
 ### Instance-Level Limits (admin-configured)
 - `allowedResolutions`, `allowedFramerates` (CSV in instance_settings)

@@ -1,4 +1,40 @@
-import type { Room } from 'livekit-client';
+import { TrackEvent, type RemoteTrackPublication, type RemoteVideoTrack, type Room, type Track } from 'livekit-client';
+
+/**
+ * LiveKit 2.x's adaptive dimension request wins over an explicit quality cap.
+ * Equal-resolution encodings therefore need quality requests instead. Remove
+ * only that dimension listener; the SDK still pauses invisible/background
+ * video through its independent visibility listener. Keep this SDK-specific
+ * bridge here with the other guarded compatibility accessors.
+ */
+export function controlScreenShareDimensions(
+  publication: RemoteTrackPublication,
+  track: RemoteVideoTrack,
+): ((restore: boolean) => void) | null {
+  const internals = publication as unknown as {
+    handleVideoDimensionsChange?: (dimensions: Track.Dimensions) => void;
+    videoDimensionsAdaptiveStream?: Track.Dimensions;
+  };
+  const handler = internals.handleVideoDimensionsChange;
+  if (typeof handler !== 'function' || publication.track !== track) return null;
+  let latestDimensions = internals.videoDimensionsAdaptiveStream;
+  const remember = (dimensions: Track.Dimensions) => { latestDimensions = dimensions; };
+  track.off(TrackEvent.VideoDimensionsChanged, handler);
+  track.on(TrackEvent.VideoDimensionsChanged, remember);
+  internals.videoDimensionsAdaptiveStream = undefined;
+  let disposed = false;
+  return (restore) => {
+    if (disposed) return;
+    disposed = true;
+    track.off(TrackEvent.VideoDimensionsChanged, remember);
+    // setTrack emits Unsubscribed before replacing publication.track. Its
+    // teardown already removed handler: restoring then would leak it.
+    if (restore && publication.track === track) {
+      track.on(TrackEvent.VideoDimensionsChanged, handler);
+      internals.videoDimensionsAdaptiveStream = latestDimensions;
+    }
+  };
+}
 
 /**
  * Discover all unique RTCPeerConnections from the LiveKit Room engine.

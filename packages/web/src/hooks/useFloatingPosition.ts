@@ -2,8 +2,8 @@ import { type RefObject, type CSSProperties, useState, useLayoutEffect, useCallb
 import { layoutPixels, layoutRect } from '../platform/interfaceScale';
 
 export type Placement = 'top' | 'bottom' | 'left' | 'right';
-/** Cross-axis alignment: centred on the anchor, or flush with its leading edge. */
-export type Alignment = 'center' | 'start';
+/** Cross-axis alignment: centred on the anchor, or flush with either edge. */
+export type Alignment = 'center' | 'start' | 'end';
 
 /** The subset of DOMRect placement needs — lets callers pass a stored rect. */
 export interface AnchorRect {
@@ -77,9 +77,11 @@ export function computeFloatingPosition(
   // Compute initial position on primary axis
   const crossLeft = align === 'start'
     ? anchorRect.left
+    : align === 'end' ? anchorRect.right - floatingWidth
     : anchorRect.left + anchorRect.width / 2 - floatingWidth / 2;
   const crossTop = align === 'start'
     ? anchorRect.top
+    : align === 'end' ? anchorRect.bottom - floatingHeight
     : anchorRect.top + anchorRect.height / 2 - floatingHeight / 2;
 
   if (placement === 'top') {

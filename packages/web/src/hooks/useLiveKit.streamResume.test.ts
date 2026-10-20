@@ -164,6 +164,7 @@ describe('a viewer watching a share whose sharer fully reconnects', () => {
     useVoiceStore.getState().watchStream('bob');
     useVoiceStore.getState().setStreamVolume('bob', 150);
     useVoiceStore.getState().setStreamMute('bob', true);
+    useVoiceStore.getState().setStreamViewerQuality(SHARER, 'medium');
     // The sharer's reconnect: the server replaces it, so it leaves.
     leave(room, sharer);
     expect(useVoiceStore.getState().watchingStreams.has('bob')).toBe(false);
@@ -182,6 +183,7 @@ describe('a viewer watching a share whose sharer fully reconnects', () => {
     expect(state.watchingStreams.has('bob')).toBe(true);
     expect(state.streamVolumes.get('bob')).toBe(150);
     expect(state.streamMutes.get('bob')).toBe(true);
+    expect(state.streamViewerQualities.get(SHARER)).toBe('medium');
     // Back in the sharer's watcher set, which its reconnect may have emptied.
     expect(sentPings(room)).toEqual([{ type: 'stream_watch', target: 'bob', targetIdentity: SHARER, watching: true }]);
   });
@@ -274,6 +276,7 @@ describe('a viewer whose own connection fully reconnects', () => {
     publish(room, sharer, 'TR_1');
     useVoiceStore.getState().watchStream('bob');
     useVoiceStore.getState().setStreamVolume('bob', 60);
+    useVoiceStore.getState().setStreamViewerQuality(SHARER, 'economy');
 
     leave(room, sharer);
     setState(room, ConnectionState.Reconnecting);
@@ -287,6 +290,7 @@ describe('a viewer whose own connection fully reconnects', () => {
     expect(pub.setSubscribed).toHaveBeenCalledWith(true);
     expect(useVoiceStore.getState().watchingStreams.has('bob')).toBe(true);
     expect(useVoiceStore.getState().streamVolumes.get('bob')).toBe(60);
+    expect(useVoiceStore.getState().streamViewerQualities.get(SHARER)).toBe('economy');
     expect(sentPings(room)).toEqual([expect.objectContaining({ type: 'stream_watch', targetIdentity: SHARER, watching: true })]);
   });
 

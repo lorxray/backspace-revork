@@ -117,6 +117,8 @@
       "text": "文字"
     },
     "codec": "编解码器",
+    "viewerBitrateH264": "H264 可为观众提供相同分辨率的不同码率。额外档位会增加编码负载和上传流量。",
+    "viewerBitrateVp9": "当前服务器上的 VP9 仅提供原画质。选择 H264 可为观众提供码率档位。",
     "codecOption": {
       "vp9": "VP9",
       "h264": "H264"
@@ -164,6 +166,21 @@
     "watchShort": "观看",
     "mute": "静音直播",
     "isStreaming": "{{name}} 正在直播"
+  },
+  "viewerQuality": {
+    "button": "画质",
+    "buttonLabel": "画质：{{quality}}",
+    "title": "播放画质",
+    "auto": "自动",
+    "original": "原画质",
+    "medium": "中等",
+    "economy": "省流",
+    "autoDescription": "根据你的连接自动调整",
+    "sourceDescription": "原始直播设置",
+    "resolution": "{{height}}p",
+    "bitrateLimit": "最高 {{bitrate}}",
+    "localOnly": "仅更改你的播放设置",
+    "sourceOnly": "此直播仅提供原画质。"
   },
   "streamDiagnostics": {
     "publisherNetwork": "推流端网络不稳定",

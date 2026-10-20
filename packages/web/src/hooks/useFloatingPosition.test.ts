@@ -36,6 +36,16 @@ describe('computeFloatingPosition', () => {
     expect(pos.top).toBe(300 + 20 - 210);
   });
 
+  it('aligns a top menu to the right edge of its trigger', () => {
+    const pos = computeFloatingPosition(rect(600, 500, 120, 36), 276, 300, 'top', 10, 'end');
+    expect(pos).toEqual({ left: 444, top: 190, actualPlacement: 'top' });
+  });
+
+  it('keeps end alignment when a top menu flips below its trigger', () => {
+    const pos = computeFloatingPosition(rect(600, 50, 120, 36), 276, 300, 'top', 10, 'end');
+    expect(pos).toEqual({ left: 444, top: 96, actualPlacement: 'bottom' });
+  });
+
   it('clamps a surface taller than the space below its anchor', () => {
     const pos = computeFloatingPosition(rect(100, 700), 340, 420, 'right', 8);
     expect(pos.top + 420).toBeLessThanOrEqual(800 - 8);

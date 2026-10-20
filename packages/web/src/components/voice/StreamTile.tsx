@@ -12,6 +12,8 @@ import { encodeStreamWatch, streamWatchFor, type StreamWatchTarget } from '../..
 import { AudioManager } from '../../audio/AudioManager';
 import { getSfxVolume } from '../../utils/sfx';
 import { ScreenShareSettingsPopover } from './ScreenShareSettingsPopover';
+import { StreamViewerQualityControls } from './StreamViewerQualityControls';
+import { useStreamViewerQuality } from '../../hooks/useStreamViewerQuality';
 import { useVoiceParticipantMeta } from '../../hooks/useVoiceParticipantMeta';
 import type { StreamTile as StreamTileType } from '../../hooks/useLiveKit';
 import type { TrackStatsSnapshot } from '../../hooks/useTrackStats';
@@ -33,6 +35,11 @@ const STREAM_HEALTH_KEYS = {
   reconnecting: 'voice:streamDiagnostics.reconnecting',
   unknown: 'voice:streamDiagnostics.unknown',
 } as const;
+
+function ViewerQuality({ identity }: { identity: string }) {
+  const { quality, options, setQuality } = useStreamViewerQuality(identity);
+  return <StreamViewerQualityControls quality={quality} options={options} onQualityChange={setQuality} />;
+}
 
 function finitePositiveRounded(value: number | undefined): number | null {
   if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
@@ -485,24 +492,27 @@ export function StreamTile({ tile, large, stats }: StreamTileProps) {
       {/* Bottom overlay */}
       {hasVideo && isWatching && <div data-testid="stream-tile-caption" className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/70 via-black/30 to-transparent">
         <div className="flex items-center gap-1.5 min-w-0">
-          {/* Screen icon */}
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="text-white/70 flex-shrink-0"
-          >
-            <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
-          </svg>
-          <span
-            className={`font-semibold text-white truncate ${large ? 'text-base' : 'text-[13px]'}`}
-          >
-            {displayName}
-          </span>
-          {isLocal && (
-            <span className="text-[10px] text-white/40 font-medium">{t('voice:badges.you')}</span>
-          )}
+          <div className="flex flex-1 items-center gap-1.5 min-w-0">
+            {/* Screen icon */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="text-white/70 flex-shrink-0"
+            >
+              <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
+            </svg>
+            <span
+              className={`font-semibold text-white truncate ${large ? 'text-base' : 'text-[13px]'}`}
+            >
+              {displayName}
+            </span>
+            {isLocal && (
+              <span className="text-[10px] text-white/40 font-medium">{t('voice:badges.you')}</span>
+            )}
+          </div>
+          {!isLocal && <ViewerQuality identity={participant.identity} />}
         </div>
       </div>}
     </div>

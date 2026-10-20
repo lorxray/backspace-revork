@@ -35,6 +35,7 @@ export const STREAM_RESUME_WINDOW_MS = 15_000;
 export interface RememberedStream {
   volume: number | undefined;
   muted: boolean | undefined;
+  quality?: import('./streamViewerQuality').StreamViewerQualityChoice;
 }
 
 type Phase = 'awaitingAnnouncement' | 'awaitingPublication' | 'stopped';
