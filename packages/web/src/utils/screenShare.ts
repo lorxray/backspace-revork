@@ -13,6 +13,7 @@ import i18n from '../i18n';
 import { isElectron, getElectronAPI } from '../platform/platform';
 import { acquireAppExcludedSystemAudio } from './systemAudioSource';
 import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
+import { logScreenShareFailure } from './screenShareDiagnostics';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
   STANDARD_RESOLUTIONS, STANDARD_FRAMERATES, WIDTH_MAP,
@@ -502,6 +503,7 @@ export async function stageScreenCapture(): Promise<MediaStream> {
     // Loopback unsupported (Linux without pulse, macOS without Catap) makes
     // the whole getDisplayMedia call reject. No auto-retry: the picker
     // selection was consumed, retrying would re-prompt it.
+    if (!isCaptureCancellation(err)) logScreenShareFailure('capture', err, config, opts);
     if (config.shareAudio && !isCaptureCancellation(err)) {
       useUIStore.getState().addToast(
         i18n.t('voice:screenPicker.audioCaptureFailed'),
@@ -652,6 +654,7 @@ export async function publishScreenShare(
 
   let videoPublished = false;
   let audioPublished = false;
+  let audioPublicationAttempted = false;
   try {
     videoTrack.contentHint = opts.contentHint;
     await room.localParticipant.publishTrack(videoTrack, {
@@ -676,6 +679,7 @@ export async function publishScreenShare(
       throw new DOMException('Screen share start cancelled', 'AbortError');
     }
     if (audioToPublish) {
+      audioPublicationAttempted = true;
       await publishScreenShareAudioTrack(room, audioToPublish);
       audioPublished = true;
     }
@@ -709,7 +713,10 @@ export async function publishScreenShare(
     scheduleEncoderDetection(room, config.codec, videoTrack.id);
     return true;
   } catch (err) {
-    if (!isCaptureCancellation(err)) console.error('[ScreenShare] Failed to publish screen share:', err);
+    if (!isCaptureCancellation(err)) {
+      console.error('[ScreenShare] Failed to publish screen share:', err);
+      logScreenShareFailure(audioPublicationAttempted ? 'audio-publish' : 'video-publish', err, config, opts, stream, options.source);
+    }
     if (audioPublished && audioToPublish) {
       try {
         await room.localParticipant.unpublishTrack(audioToPublish, false);
@@ -726,9 +733,9 @@ export async function publishScreenShare(
         console.error('[ScreenShare] Failed to roll back the video publication:', unpublishErr);
       }
     }
-    if (audioToPublish && !isCaptureCancellation(err)) {
+    if (!isCaptureCancellation(err)) {
       useUIStore.getState().addToast(
-        i18n.t('voice:streamSettings.systemAudioStartFailed'),
+        i18n.t(audioPublicationAttempted ? 'voice:streamSettings.systemAudioStartFailed' : 'voice:screenPicker.startFailed'),
         'warning',
         8000,
       );

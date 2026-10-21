@@ -113,9 +113,75 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('screen-share media options', () => {
+  it.each([true, false])('reports a video publication failure accurately with system audio %s', async (shareAudio) => {
+    useVoiceStore.getState().setScreenShareConfig({ codec: 'h264', shareAudio });
+    const video = makeVideoTrack();
+    video.getSettings.mockReturnValue({ width: 3840, height: 2160 });
+    const audio = shareAudio ? makeTrack('audio') : undefined;
+    const room = fakeRoom();
+    const failure = new DOMException('Failed to set video send parameters', 'OperationError');
+    room.localParticipant.publishTrack.mockRejectedValueOnce(failure);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const source: ElectronScreenSource = {
+      id: 'screen:0:0', name: 'Monitor', isScreen: true, appIconDataUrl: null, thumbnailDataUrl: '',
+    };
+
+    expect(await publishScreenShare(room, makeStream(video, audio), { source, sourceId: source.id, pickerMode: 'app' })).toBe(false);
+
+    expect(room.localParticipant.publishTrack).toHaveBeenCalledOnce();
+    expect(video.stop).toHaveBeenCalledOnce();
+    if (audio) expect(audio.stop).toHaveBeenCalledOnce();
+    expect(useUIStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: i18n.t('voice:screenPicker.startFailed') }),
+    ]);
+    const output = consoleError.mock.calls.find(([message]) => typeof message === 'string' && message.startsWith('[ScreenShare:Diagnostic] '))?.[0];
+    expect(JSON.parse(String(output).slice('[ScreenShare:Diagnostic] '.length))).toMatchObject({
+      phase: 'video-publish', codec: 'h264', sourceKind: 'monitor',
+      requested: { width: 2560, height: 1440, frameRate: 60, maxBitrate: 18_000_000, shareAudio },
+      capture: { width: 3840, height: 2160 },
+      audio: { present: shareAudio, live: shareAudio, enabled: shareAudio },
+      error: { name: 'OperationError', message: failure.message },
+    });
+  });
+
+  it('reports the audio phase and withdraws video when publishing system audio fails', async () => {
+    const video = makeVideoTrack();
+    const audio = makeTrack('audio');
+    const room = fakeRoom();
+    const failure = new Error('Audio negotiation rejected');
+    room.localParticipant.publishTrack.mockResolvedValueOnce({}).mockRejectedValueOnce(failure);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await publishScreenShare(room, makeStream(video, audio))).toBe(false);
+
+    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, false);
+    expect(video.stop).toHaveBeenCalledOnce();
+    expect(audio.stop).toHaveBeenCalledOnce();
+    expect(useUIStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: i18n.t('voice:streamSettings.systemAudioStartFailed') }),
+    ]);
+    const output = consoleError.mock.calls.find(([message]) => typeof message === 'string' && message.startsWith('[ScreenShare:Diagnostic] '))?.[0];
+    expect(JSON.parse(String(output).slice('[ScreenShare:Diagnostic] '.length))).toMatchObject({
+      phase: 'audio-publish', error: { name: 'Error', message: failure.message },
+    });
+    expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+  });
+
+  it('does not record cancellation as a failed publication or display an error toast', async () => {
+    const room = fakeRoom();
+    room.localParticipant.publishTrack.mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await publishScreenShare(room, makeStream(makeVideoTrack(), makeTrack('audio')))).toBe(false);
+
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(useUIStore.getState().toasts).toHaveLength(0);
+  });
+
   it('remembers only published settings and source; cancelled setup edits do not replace them', async () => {
     const room = fakeRoom();
     const source: ElectronScreenSource = {

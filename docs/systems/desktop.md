@@ -1568,6 +1568,20 @@ Earlier builds wrote to `<appData>/@backspace/desktop/`. On first launch after t
 | `games-cache.json` | `VersionedDictionary` | Cached remote game dictionary |
 | `games-cache-etag.txt` | ETag string | For conditional HTTP requests |
 
+### Screen-share failure diagnostics
+
+The renderer emits a structured `[ScreenShare:Diagnostic]` console message for
+capture, video-publication and audio-publication failures. The desktop main
+process validates those messages and writes `screen-share.log` under
+`app.getPath('logs')` (normally `%APPDATA%\Backspace\logs\` on Windows).
+Packaged DevTools remain disabled; opening a console is not needed to collect
+the original exception, requested quality and actual capture dimensions.
+
+Only explicitly allowed diagnostic fields are saved. Screen pixels, audio
+content, source titles, URLs, credentials and SDP are not stored. The file is
+bounded to 256 KiB and starts a fresh segment when full. A logging failure
+does not interrupt application startup, stream cleanup or error reporting.
+
 ---
 
 ## Desktop Microphone Activation Threshold

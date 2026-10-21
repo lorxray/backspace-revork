@@ -70,6 +70,7 @@ import { getDesktopLanguage, isDesktopLanguage, saveStoredLanguage, translateDes
 import { createBundledWebClient, type BundledWebClient } from './bundledWebClient';
 import { resolveInstanceRedirect } from './instanceRedirect';
 import { installBundledClientSession, type BundledClientSession } from './bundledClientSession';
+import { createStreamDiagnosticLogger } from './streamDiagnostics';
 
 // Override Electron's package.json-derived app name so userData lives at
 // "<appData>/Backspace" instead of leaking the monorepo's "@backspace/desktop"
@@ -441,6 +442,15 @@ function createWindow(): void {
       additionalArguments: bundledWebClient ? ['--backspace-bundled-web-client'] : [],
     },
   });
+
+  try {
+    const logStreamFailure = createStreamDiagnosticLogger(app.getPath('logs'), app.getVersion());
+    mainWindow.webContents.on('console-message', (details) => {
+      logStreamFailure(details.message);
+    });
+  } catch {
+    // An unavailable logs directory must not prevent the app from opening.
+  }
 
   if (bundledWebClient) {
     bundledClientSession = installBundledClientSession(mainWindow.webContents, bundledWebClient, (error) => {
