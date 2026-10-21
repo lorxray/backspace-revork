@@ -13,6 +13,7 @@ import i18n from '../i18n';
 import { isElectron, getElectronAPI } from '../platform/platform';
 import { acquireAppExcludedSystemAudio } from './systemAudioSource';
 import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
+import type { LastScreenShareSource } from './lastScreenShareSource';
 import { logScreenShareFailure } from './screenShareDiagnostics';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
@@ -621,10 +622,12 @@ export interface PublishScreenShareOptions {
   sourceId?: string | null;
   /** Who picked the source (`getScreenSharePickerMode`); only `'app'` can be preselected again. */
   pickerMode?: ScreenSharePickerMode | null;
-  /** Freshly enumerated desktop metadata; never restored from storage. */
-  source?: ElectronScreenSource | null;
+  /** Session-only desktop metadata of the selected or continuing capture. */
+  source?: LastScreenShareSource | null;
   /** A pending start was cancelled or its original call disconnected. */
   isCurrent?: () => boolean;
+  /** Internal video replacement: leave the independent audio publication in place. */
+  preserveAudioPublication?: boolean;
 }
 
 export async function publishScreenShare(
@@ -644,7 +647,7 @@ export async function publishScreenShare(
   const capturedAudio = stream.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
   // The toggle as it stands now, not as it stood at capture: audio captured
   // before the user turned System Audio off is not sent.
-  const audioToPublish = config.shareAudio ? capturedAudio : null;
+  const audioToPublish = config.shareAudio && !options.preserveAudioPublication ? capturedAudio : null;
   const source: LiveSource | null = options.sourceId
     ? { id: options.sourceId, pickerMode: options.pickerMode ?? null }
     : null;
@@ -696,7 +699,9 @@ export async function publishScreenShare(
     if (capturedAudio && !audioToPublish) setAsideScreenShareAudio(capturedAudio);
     useVoiceStore.setState({
       isScreenSharing: true,
-      screenShareAudio: audioToPublish ? 'published' : idleScreenShareAudioState(),
+      screenShareAudio: audioToPublish || (options.preserveAudioPublication
+        && room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track)
+        ? 'published' : idleScreenShareAudioState(),
       lastSuccessfulScreenShareConfig: { ...config },
     });
     if (options.source !== undefined) {
@@ -751,52 +756,64 @@ export async function publishScreenShare(
 /**
  * Re-publish the live screen share with the current publish options. The
  * codec is baked into SDP negotiation, so a codec change needs a fresh
- * publication — but the MediaStreamTrack is reusable, so no re-capture and
- * no second picker prompt.
+ * publication. A clone continues the same capture with a fresh signalling CID;
+ * reusing the old CID can queue AddTrack until the SFU closes the old track.
+ * The independent audio publication stays in place throughout the video swap.
  */
 export async function republishScreenShare(room: Room): Promise<void> {
   const videoPub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
-  const audioPub = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio);
   const videoTrack = videoPub?.track?.mediaStreamTrack;
   if (!videoPub?.track || !videoTrack) return;
-  const audioTrack = audioPub?.track?.mediaStreamTrack ?? null;
-  const stream = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
-
-  // Tell viewers first, so they read the unpublish below as this swap and pick
-  // up the next publication, rather than as the share ending. Sent before the
-  // unpublish because that is the order viewers must see; if it cannot be sent
-  // the swap still goes ahead and viewers see the share end, as before.
-  try {
-    await room.localParticipant.publishData(encodeShareSignal('stream_republish'), { reliable: true });
-  } catch (err) {
-    console.warn('[ScreenShare] Could not announce the republish to viewers:', err);
-  }
+  const generation = _audioGeneration;
+  const isCurrent = () => generation === _audioGeneration && useVoiceStore.getState().isScreenSharing
+    && room.state !== ConnectionState.Disconnected && room.state !== ConnectionState.Reconnecting;
+  const liveSource = _liveSource;
+  const savedSource = getLastScreenShareSource();
+  let replacement: MediaStreamTrack | null = null;
+  let ok = false;
 
   _republishing = true;
   try {
-    await room.localParticipant.unpublishTrack(videoPub.track, false);
-    if (audioPub?.track) await room.localParticipant.unpublishTrack(audioPub.track, false);
+    // Clone before stopping the old branch: the same source remains captured,
+    // while LiveKit receives a new MediaStreamTrack.id for its AddTrack request.
+    replacement = videoTrack.clone();
+    const stream = new MediaStream([replacement]);
+    // Tell viewers first, so the following unpublish bridges to the replacement.
+    try {
+      await room.localParticipant.publishData(encodeShareSignal('stream_republish'), { reliable: true });
+    } catch (err) {
+      console.warn('[ScreenShare] Could not announce the republish to viewers:', err);
+    }
+    if (!isCurrent()) return;
+
+    // Stop every old video/backup branch; the replacement clone owns its own
+    // branch. Audio can own an OS loopback source and must not be stopped here.
+    await room.localParticipant.unpublishTrack(videoPub.track, true);
+    if (!isCurrent()) return;
+    _publishedScreenShareCodec = null;
+    _requestedPublishedScreenShareCodec = null;
+
+    ok = await publishScreenShare(room, stream, {
+      sourceId: liveSource?.id ?? null,
+      pickerMode: liveSource?.pickerMode ?? null,
+      ...(savedSource && savedSource.id === liveSource?.id ? { source: savedSource } : {}),
+      preserveAudioPublication: true,
+      isCurrent,
+    });
+  } catch (err) {
+    console.error('[ScreenShare] Failed to replace the screen-share publication:', err);
   } finally {
     _republishing = false;
-  }
-  _publishedScreenShareCodec = null;
-  _requestedPublishedScreenShareCodec = null;
-
-  const ok = await publishScreenShare(room, stream, {
-    sourceId: _liveSource?.id ?? null,
-    pickerMode: _liveSource?.pickerMode ?? null,
-  });
-  if (!ok) {
-    deactivateHwOverdrive();
-    endScreenShareAudio(room);
-    useVoiceStore.setState({ isScreenSharing: false });
-    announceShare(room, 'stream_stop');
-    // The swap suppressed handleScreenShareUnpublished, and a video publish
-    // that never landed emits no rollback unpublish either, so nothing else
-    // will carry the stop to the clients outside the LiveKit room. Without
-    // this their channel lists keep the sharing indicator up indefinitely
-    // while the sharer's own UI says they stopped.
-    broadcastVoiceStatus();
+    if (!ok) {
+      if (replacement?.readyState === 'live') replacement.stop();
+      // A concurrent explicit stop already cleared/broadcast this share. A
+      // failed swap otherwise ends both publications and broadcasts once.
+      if (generation === _audioGeneration && useVoiceStore.getState().isScreenSharing) {
+        await stopScreenShare(room);
+      }
+      // Even a failed SDK unpublish must release our original capture branch.
+      if (videoTrack.readyState === 'live') videoTrack.stop();
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Stub the module graph screenShare.ts pulls in; only the broadcast matters here.
 vi.mock('livekit-client', () => ({
@@ -6,6 +6,12 @@ vi.mock('livekit-client', () => ({
   Track: { Source: { ScreenShare: 'screen_share', ScreenShareAudio: 'screen_share_audio', Camera: 'camera' } },
   BackupCodecPolicy: { SIMULCAST: 0 },
   AudioPresets: { musicHighQualityStereo: { maxBitrate: 128_000 } },
+  VideoPreset: class {
+    encoding: { maxBitrate: number; maxFramerate: number };
+    constructor(public width: number, public height: number, maxBitrate: number, maxFramerate: number) {
+      this.encoding = { maxBitrate, maxFramerate };
+    }
+  },
   ConnectionState: { Connected: 'connected', Reconnecting: 'reconnecting', Disconnected: 'disconnected' },
 }));
 vi.mock('./voice', () => ({ broadcastVoiceStatus: vi.fn() }));
@@ -23,6 +29,25 @@ vi.mock('../i18n', () => ({ default: { t: (k: string) => k } }));
 import { stopScreenShare, handleScreenShareUnpublished, republishScreenShare } from './screenShare';
 import { broadcastVoiceStatus } from './voice';
 import { useVoiceStore } from '../stores/voiceStore';
+import { rememberScreenShareSource } from './lastScreenShareSource';
+
+let captureSequence = 0;
+function makeCapture(kind = 'video') {
+  const capture = {
+    id: `capture-${++captureSequence}`,
+    kind,
+    readyState: 'live',
+    contentHint: '',
+    getSettings: () => ({ width: 3440, height: 1440, frameRate: 60 }),
+    stop: vi.fn(() => { capture.readyState = 'ended'; }),
+    clone: vi.fn((): ReturnType<typeof makeCapture> => makeCapture(kind)),
+    addEventListener: vi.fn(),
+  };
+  return capture;
+}
+
+beforeEach(() => { vi.useFakeTimers(); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 /**
  * `voice_status` is what carries isScreenSharing to people who are not in the
@@ -133,7 +158,7 @@ describe('a republish that fails to land tells the room the share is gone', () =
   });
 
   it('broadcasts when the fresh publish throws', async () => {
-    const mediaStreamTrack = { kind: 'video', readyState: 'live', contentHint: '', stop: vi.fn() };
+    const mediaStreamTrack = makeCapture();
     const videoPub = { track: { mediaStreamTrack } };
     const room = {
       localParticipant: {
@@ -169,7 +194,7 @@ describe('a republish announces itself before it unpublishes', () => {
 
   function makeSharingRoom(publishData: ReturnType<typeof vi.fn>) {
     const calls: string[] = [];
-    const mediaStreamTrack = { kind: 'video', readyState: 'live', contentHint: '', stop: vi.fn() };
+    const mediaStreamTrack = makeCapture();
     const videoPub = { track: { mediaStreamTrack } };
     const localParticipant = {
       getTrackPublication: vi.fn((source: string) => (source === 'screen_share' ? videoPub : undefined)),
@@ -201,5 +226,131 @@ describe('a republish announces itself before it unpublishes', () => {
     expect(calls).toContain('unpublishTrack');
     expect(calls).toContain('publishTrack');
     expect(useVoiceStore.getState().isScreenSharing).toBe(true);
+  });
+});
+
+describe('screen-share replacement uses a fresh CID and keeps system audio', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useVoiceStore.setState({
+      ...useVoiceStore.getInitialState(),
+      isScreenSharing: true,
+      screenShareAudio: 'published',
+      screenShareConfig: {
+        height: 'native', fps: 60, mode: 'gaming', customBitrateKbps: 15_000,
+        shareAudio: true, codec: 'h264',
+      },
+    });
+    rememberScreenShareSource({ id: 'screen:0:0', name: 'Monitor', isScreen: true, appIconDataUrl: null });
+    (globalThis as { MediaStream?: unknown }).MediaStream = class {
+      constructor(private tracks: ReturnType<typeof makeCapture>[]) {}
+      getTracks() { return this.tracks; }
+      getVideoTracks() { return this.tracks.filter(track => track.kind === 'video'); }
+      getAudioTracks() { return this.tracks.filter(track => track.kind === 'audio'); }
+    };
+  });
+
+  function sharingRoom() {
+    const video = makeCapture();
+    const audio = makeCapture('audio');
+    const originalVideo = { mediaStreamTrack: video };
+    const originalAudio = { mediaStreamTrack: audio };
+    const audioPublication = { trackSid: 'audio-sid', track: originalAudio };
+    const publications = new Map<string, { track: { mediaStreamTrack: ReturnType<typeof makeCapture> }; trackSid?: string }>([
+      ['screen_share', { track: originalVideo }],
+      ['screen_share_audio', audioPublication],
+    ]);
+    // The SFU still owns the old CID after the unpublish's SDP answer, and
+    // would queue another AddTrack with it until the remote track closes.
+    const unavailableCids = new Set([video.id, audio.id]);
+    const localParticipant = {
+      getTrackPublication: vi.fn((source: string) => publications.get(source)),
+      getTrackPublications: vi.fn(() => []),
+      publishData: vi.fn<(payload: Uint8Array, options: { reliable: boolean }) => Promise<void>>().mockResolvedValue(undefined),
+      unpublishTrack: vi.fn(async (track: typeof originalVideo, stop: boolean) => {
+        const source = track === originalAudio ? 'screen_share_audio' : 'screen_share';
+        publications.delete(source);
+        if (stop) track.mediaStreamTrack.stop();
+        if (source === 'screen_share') handleScreenShareUnpublished(room);
+      }),
+      publishTrack: vi.fn(async (track: ReturnType<typeof makeCapture>, options: { source: string }) => {
+        if (unavailableCids.has(track.id)) throw new Error('publication of local track timed out, no response from server');
+        unavailableCids.add(track.id);
+        const publication = { track: { mediaStreamTrack: track } };
+        publications.set(options.source, publication);
+        return publication;
+      }),
+    };
+    const room = { state: 'connected', localParticipant } as never;
+    return { room, localParticipant, video, audio, originalVideo, originalAudio, audioPublication, publications };
+  }
+
+  it('replaces H.264 immediately without reusing the pending CID or audio SID', async () => {
+    const sharing = sharingRoom();
+    await republishScreenShare(sharing.room);
+
+    const replacement = sharing.localParticipant.publishTrack.mock.calls[0]![0];
+    expect(replacement.id).not.toBe(sharing.video.id);
+    expect(replacement.readyState).toBe('live');
+    expect(sharing.video.stop).toHaveBeenCalledOnce();
+    expect(sharing.localParticipant.unpublishTrack).toHaveBeenCalledExactlyOnceWith(sharing.originalVideo, true);
+    expect(sharing.localParticipant.publishTrack).toHaveBeenCalledOnce();
+    expect(sharing.publications.get('screen_share_audio')).toBe(sharing.audioPublication);
+    expect(sharing.audio.stop).not.toHaveBeenCalled();
+    expect(sharing.audio.clone).not.toHaveBeenCalled();
+    expect(useVoiceStore.getState()).toMatchObject({ isScreenSharing: true, screenShareAudio: 'published' });
+    expect(broadcastVoiceStatus).not.toHaveBeenCalled();
+    expect(sharing.localParticipant.publishTrack.mock.calls[0]![1]).toMatchObject({
+      videoCodec: 'h264', simulcast: true,
+      screenShareEncoding: { maxBitrate: 15_000_000, maxFramerate: 60 },
+      screenShareSimulcastLayers: [
+        { width: 3440, height: 1440, encoding: { maxBitrate: 3_750_000, maxFramerate: 60 } },
+        { width: 3440, height: 1440, encoding: { maxBitrate: 7_500_000, maxFramerate: 60 } },
+      ],
+    });
+  });
+
+  it('ends the existing audio and broadcasts once when replacement publication fails', async () => {
+    const sharing = sharingRoom();
+    sharing.localParticipant.publishTrack.mockRejectedValueOnce(new Error('gone'));
+    await republishScreenShare(sharing.room);
+
+    const replacement = sharing.localParticipant.publishTrack.mock.calls[0]![0];
+    expect(replacement.stop).toHaveBeenCalledOnce();
+    expect(sharing.audio.stop).toHaveBeenCalledOnce();
+    expect(sharing.publications.size).toBe(0);
+    expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+    expect(broadcastVoiceStatus).toHaveBeenCalledOnce();
+    expect(sharing.localParticipant.publishData.mock.calls.map(([payload]) => JSON.parse(new TextDecoder().decode(payload)).type))
+      .toEqual(['stream_republish', 'stream_stop']);
+  });
+
+  it('releases both video branches when the SDK cannot unpublish the old video', async () => {
+    const sharing = sharingRoom();
+    sharing.localParticipant.unpublishTrack.mockImplementation(async (track, stop) => {
+      if (track === sharing.originalVideo) throw new Error('unpublish failed');
+      sharing.publications.delete('screen_share_audio');
+      if (stop) track.mediaStreamTrack.stop();
+    });
+    await republishScreenShare(sharing.room);
+
+    expect(sharing.localParticipant.publishTrack).not.toHaveBeenCalled();
+    expect(sharing.video.stop).toHaveBeenCalledOnce();
+    expect(sharing.video.clone.mock.results[0]!.value.stop).toHaveBeenCalledOnce();
+    expect(sharing.audio.stop).toHaveBeenCalledOnce();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+    expect(broadcastVoiceStatus).toHaveBeenCalledOnce();
+  });
+
+  it('discards the new capture branch when a concurrent stop cancels the swap', async () => {
+    const sharing = sharingRoom();
+    sharing.localParticipant.publishData.mockImplementationOnce(async () => { await stopScreenShare(sharing.room); });
+    await republishScreenShare(sharing.room);
+
+    expect(sharing.localParticipant.publishTrack).not.toHaveBeenCalled();
+    expect(sharing.video.clone.mock.results[0]!.value.stop).toHaveBeenCalledOnce();
+    expect(sharing.audio.stop).toHaveBeenCalledOnce();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+    expect(broadcastVoiceStatus).toHaveBeenCalledOnce();
   });
 });

@@ -138,7 +138,9 @@ beforeEach(() => {
   mocks.audio.resumeContext.mockResolvedValue(undefined);
   mocks.audio.setRnnoiseEnabled.mockResolvedValue(undefined);
   mocks.audio.setInputDevice.mockResolvedValue(null);
-  mocks.connect.mockResolvedValue(undefined);
+  mocks.connect.mockImplementation(async function (this: Room) {
+    this.state = ConnectionState.Connected;
+  });
   mocks.disconnect.mockImplementation(async function (this: Room) {
     this.emit(RoomEvent.Disconnected, DisconnectReason.CLIENT_INITIATED);
   });
@@ -474,10 +476,11 @@ describe('the sharer\'s own side across a republish', () => {
     const pubs = lp.trackPublications as unknown as Map<string, LocalPub>;
     let sid = 0;
     vi.spyOn(lp, 'publishData').mockResolvedValue(undefined);
-    vi.spyOn(lp, 'unpublishTrack').mockImplementation(async (track) => {
+    vi.spyOn(lp, 'unpublishTrack').mockImplementation(async (track, stopOnUnpublish = true) => {
       for (const [key, pub] of pubs) {
         if (pub.track !== track) continue;
         pubs.delete(key);
+        if (stopOnUnpublish) pub.track.mediaStreamTrack.stop();
         // livekit-client emits this synchronously inside unpublishTrack.
         room.emit(RoomEvent.LocalTrackUnpublished, pub as never, lp);
       }
@@ -497,13 +500,20 @@ describe('the sharer\'s own side across a republish', () => {
     });
   }
 
-  function videoCapture(withAudio = false): MediaStream {
+  let captureSequence = 0;
+  function captureTrack(kind: 'video' | 'audio'): MediaStreamTrack {
     const track = {
-      kind: 'video', id: 'capture', readyState: 'live', contentHint: '',
-      stop: vi.fn(), getSettings: () => ({}), applyConstraints: vi.fn(async () => {}),
-    } as unknown as MediaStreamTrack;
-    const audio = { kind: 'audio', id: 'loopback', readyState: 'live', stop: vi.fn() } as unknown as MediaStreamTrack;
-    return new MediaStream(withAudio ? [track, audio] : [track]);
+      kind, id: `${kind}-${++captureSequence}`, readyState: 'live', contentHint: '',
+      stop: vi.fn(() => { track.readyState = 'ended'; }),
+      clone: vi.fn(() => captureTrack(kind)),
+      getSettings: () => ({}), applyConstraints: vi.fn(async () => {}),
+    };
+    return track as unknown as MediaStreamTrack;
+  }
+
+  function videoCapture(withAudio = false): MediaStream {
+    return new MediaStream(withAudio
+      ? [captureTrack('video'), captureTrack('audio')] : [captureTrack('video')]);
   }
 
   /** A viewer's ping as an older client sends it: the sharer's user id as that viewer lists it. */
