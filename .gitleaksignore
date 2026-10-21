@@ -1,0 +1,4 @@
+# Nonfunctional JWT fixture for the screen-share diagnostic redaction test.
+# The payload is {"sub":"user"}; the signature segment is the literal "signature".
+# Ignore only this historical finding, not other JWTs or test files.
+37d93ae3953eaf58631c33ad2a3e64d4056a7b16:packages/desktop/src/streamDiagnostics.test.ts:jwt:63
