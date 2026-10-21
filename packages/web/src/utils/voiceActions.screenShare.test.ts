@@ -37,7 +37,7 @@ describe('handleScreenShareAction', () => {
     vi.clearAllMocks();
     vi.mocked(getActiveRoom).mockReturnValue(room as never);
     useVoiceStore.setState({ isScreenSharing: false });
-    useScreenShareSetupStore.setState({ isOpen: false });
+    useScreenShareSetupStore.setState({ isOpen: false, isStarting: false });
   });
 
   it('opens the setup screen instead of capturing when idle', async () => {
@@ -62,5 +62,11 @@ describe('handleScreenShareAction', () => {
     await handleScreenShareAction();
     expect(useScreenShareSetupStore.getState().isOpen).toBe(false);
     expect(stopScreenShare).not.toHaveBeenCalled();
+  });
+
+  it('does not open settings over a pending quick start', async () => {
+    useScreenShareSetupStore.setState({ isStarting: true });
+    await handleScreenShareAction();
+    expect(useScreenShareSetupStore.getState().isOpen).toBe(false);
   });
 });

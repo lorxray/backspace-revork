@@ -122,6 +122,8 @@
     "loading": "Carregando o Backspace"
   },
   "chrome": {
+    "resizeSidebar": "Redimensionar a barra lateral esquerda",
+    "resizeSidebarHint": "Arraste para redimensionar. Clique duas vezes para redefinir. As setas ajustam a largura.",
     "toggleMemberList": "Alternar lista de membros",
     "closeSettings": "Fechar configurações"
   },

@@ -5,6 +5,8 @@ import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useSpaceStore, getChannelOrigin, getMyUserIdForOrigin } from '../../stores/spaceStore';
 import { ScreenShareSettingsPopover } from './ScreenShareSettingsPopover';
+import { QuickStartStreamButton } from './QuickStartStreamButton';
+import { useScreenShareSetupStore } from '../../stores/screenShareSetupStore';
 import { hasPermissionBit, PermissionBits } from '../../utils/permissions';
 import { handleMuteAction, handleDeafenAction, handleCameraAction, handleScreenShareAction, handleDisconnectAction } from '../../utils/voiceActions';
 import { VOICE_CHROME_ATTR } from '../../hooks/usePointerReveal';
@@ -25,6 +27,11 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
   const isDeafened = useVoiceStore((s) => s.isDeafened);
   const isCameraOn = useVoiceStore((s) => s.isCameraOn);
   const isScreenSharing = useVoiceStore((s) => s.isScreenSharing);
+  const isLiveKitConnected = useVoiceStore((s) => s.isLiveKitConnected);
+  const voiceConnectionStatus = useVoiceStore((s) => s.voiceConnectionStatus);
+  const connectionError = useVoiceStore((s) => s.connectionError);
+  const isShareStarting = useScreenShareSetupStore((s) => s.isStarting);
+  const isShareSetupOpen = useScreenShareSetupStore((s) => s.isOpen);
   const voiceChatOpen = useUIStore((s) => s.voiceChatOpen);
   const toggleVoiceChat = useUIStore((s) => s.toggleVoiceChat);
   const voiceFullscreen = useUIStore((s) => s.voiceFullscreen);
@@ -42,7 +49,9 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
   const isDmCall = !!activeDmCall;
   const canSpeak = isDmCall || hasPermissionBit(channelPerms, PermissionBits.SPEAK);
   const canStream = isDmCall || hasPermissionBit(channelPerms, PermissionBits.STREAM);
-  // The screen-share button is the single entry point to stream settings:
+  const shareStartDisabled = !isScreenSharing && (isShareStarting || isShareSetupOpen
+    || !isLiveKitConnected || voiceConnectionStatus !== 'connected' || !!connectionError);
+  // The screen-share button opens stream settings:
   // idle → opens the OS/Electron source picker; live → opens the settings
   // popover (quality controls + the red stop action).
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
@@ -68,6 +77,7 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
   const handleCamera = () => handleCameraAction();
 
   const handleScreenShare = () => {
+    if (shareStartDisabled) return;
     if (isScreenSharing) {
       setShareMenuOpen((open) => !open);
       return;
@@ -176,7 +186,8 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
               // only claims a popup in the state where it actually opens one.
               aria-haspopup={isScreenSharing ? 'dialog' : undefined}
               aria-expanded={isScreenSharing ? shareMenuOpen : undefined}
-              className={isScreenSharing ? btnGreen : btnDefault}
+              disabled={shareStartDisabled}
+              className={`${isScreenSharing ? btnGreen : btnDefault} disabled:opacity-40 disabled:cursor-not-allowed`}
               title={isScreenSharing ? t('voice:controls.shareOptions') : t('voice:controls.shareScreen')}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -184,6 +195,7 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
                 <path d="M15 11L11 14V12H9V10H11V8L15 11Z" />
               </svg>
             </button>
+            <QuickStartStreamButton className={btnDefault} />
             <ScreenShareSettingsPopover
               open={shareMenuOpen && isScreenSharing}
               onClose={() => setShareMenuOpen(false)}

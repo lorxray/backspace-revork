@@ -4,6 +4,8 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { useSpaceStore } from '../../stores/spaceStore';
 import { ScreenShareSettingsPopover } from './ScreenShareSettingsPopover';
 import { ConnectionInfoPopover } from './ConnectionInfoPopover';
+import { QuickStartStreamButton } from './QuickStartStreamButton';
+import { useScreenShareSetupStore } from '../../stores/screenShareSetupStore';
 import { hasPermissionBit, PermissionBits } from '../../utils/permissions';
 import { handleCameraAction, handleDisconnectAction, handleScreenShareAction, reconnectVoice } from '../../utils/voiceActions';
 
@@ -16,6 +18,8 @@ export function VoiceControls() {
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const isCameraOn = useVoiceStore((s) => s.isCameraOn);
   const isScreenSharing = useVoiceStore((s) => s.isScreenSharing);
+  const isShareStarting = useScreenShareSetupStore((s) => s.isStarting);
+  const isShareSetupOpen = useScreenShareSetupStore((s) => s.isOpen);
   const rnnoiseEnabled = useVoiceStore((s) => s.rnnoiseEnabled);
   const setRnnoiseEnabled = useVoiceStore((s) => s.setRnnoiseEnabled);
   const connectionError = useVoiceStore((s) => s.connectionError);
@@ -36,6 +40,8 @@ export function VoiceControls() {
   const isDmCall = !!activeDmCall;
   const canSpeak = isDmCall || hasPermissionBit(channelPerms, PermissionBits.SPEAK);
   const canStream = isDmCall || hasPermissionBit(channelPerms, PermissionBits.STREAM);
+  const shareStartDisabled = !isScreenSharing && (isShareStarting || isShareSetupOpen
+    || !isLiveKitConnected || voiceConnectionStatus !== 'connected' || !!connectionError);
 
   // A share that ends outside the menu (OS "Stop sharing" bar, track loss,
   // keybind) must not leave a stale settings popover anchored to the button.
@@ -49,6 +55,7 @@ export function VoiceControls() {
   const channelName = channel?.name ?? (activeDmCall ? t('voice:status.dmCall') : t('voice:status.voiceChannel'));
 
   const handleScreenShare = () => {
+    if (shareStartDisabled) return;
     if (isScreenSharing) {
       const next = !showShareMenu;
       setShowShareMenu(next);
@@ -162,7 +169,7 @@ export function VoiceControls() {
         />
       </div>
 
-      {/* Row 2: Camera, Screen Share, Noise Suppression */}
+      {/* Row 2: Camera, stream setup, quick start, noise suppression */}
       <div className="relative flex items-center gap-1 px-3 pb-2 pt-1">
         {canSpeak && (
           <button
@@ -188,25 +195,29 @@ export function VoiceControls() {
         )}
 
         {canStream && (
-          <button
-            ref={shareBtnRef}
-            onClick={handleScreenShare}
-            // Idle the button starts a share; live it toggles a menu, so it
-            // only claims a popup in the state where it actually opens one.
-            aria-haspopup={isScreenSharing ? 'dialog' : undefined}
-            aria-expanded={isScreenSharing ? showShareMenu : undefined}
-            className={`${btnBase} ${
-              isScreenSharing
-                ? 'bg-surface-base text-status-online hover:bg-surface-channel'
-                : btnDefaultStyle
-            }`}
-            title={isScreenSharing ? t('voice:controls.shareOptions') : t('voice:controls.shareScreen')}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 18C21.1 18 22 17.1 22 16V6C22 4.9 21.1 4 20 4H4C2.9 4 2 4.9 2 6V16C2 17.1 2.9 18 4 18H0V20H24V18H20ZM4 6H20V16H4V6Z" />
-              <path d="M15 11L11 14V12H9V10H11V8L15 11Z" />
-            </svg>
-          </button>
+          <>
+            <button
+              ref={shareBtnRef}
+              onClick={handleScreenShare}
+              // Idle the button starts a share; live it toggles a menu, so it
+              // only claims a popup in the state where it actually opens one.
+              aria-haspopup={isScreenSharing ? 'dialog' : undefined}
+              aria-expanded={isScreenSharing ? showShareMenu : undefined}
+              disabled={shareStartDisabled}
+              className={`${btnBase} disabled:opacity-40 disabled:cursor-not-allowed ${
+                isScreenSharing
+                  ? 'bg-surface-base text-status-online hover:bg-surface-channel'
+                  : btnDefaultStyle
+              }`}
+              title={isScreenSharing ? t('voice:controls.shareOptions') : t('voice:controls.shareScreen')}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 18C21.1 18 22 17.1 22 16V6C22 4.9 21.1 4 20 4H4C2.9 4 2 4.9 2 6V16C2 17.1 2.9 18 4 18H0V20H24V18H20ZM4 6H20V16H4V6Z" />
+                <path d="M15 11L11 14V12H9V10H11V8L15 11Z" />
+              </svg>
+            </button>
+            <QuickStartStreamButton className={`${btnBase} ${btnDefaultStyle}`} />
+          </>
         )}
 
         {/* AI Noise Suppression (RNNoise) */}

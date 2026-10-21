@@ -122,6 +122,8 @@
     "loading": "Loading Backspace"
   },
   "chrome": {
+    "resizeSidebar": "Resize left sidebar",
+    "resizeSidebarHint": "Drag to resize. Double-click to reset. Arrow keys adjust the width.",
     "toggleMemberList": "Toggle Member List",
     "closeSettings": "Close settings"
   },

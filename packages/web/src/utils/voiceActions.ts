@@ -132,7 +132,7 @@ export async function handleCameraAction(): Promise<void> {
 /**
  * Screen-share button/keybind action. Idle → opens the setup screen (source +
  * quality, then "Start stream"); live → stops the share. Starting never happens
- * here: every share is staged and published from ScreenShareSetup.
+ * here: this action opens settings; desktop quick start is a separate button.
  * Note: stopScreenShare manages voiceStore.isScreenSharing and broadcasts the
  * new voice status itself, so neither is repeated here.
  */

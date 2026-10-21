@@ -3,6 +3,7 @@ import { AudioPresets, BackupCodecPolicy, Track } from 'livekit-client';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useUIStore } from '../stores/uiStore';
 import i18n from '../i18n';
+import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
 import {
   buildScreenShareOptions,
   getPublishedScreenShareCodec,
@@ -94,6 +95,8 @@ beforeEach(() => {
   internals.getPublisherPC.mockReturnValue(null);
   internals.getMediaStreamTrack.mockReturnValue(null);
   localStorage.clear();
+  rememberScreenShareSource(null);
+  useUIStore.setState({ toasts: [] });
   useVoiceStore.setState({
     ...useVoiceStore.getInitialState(),
     screenShareConfig: {
@@ -113,6 +116,69 @@ afterEach(() => {
 });
 
 describe('screen-share media options', () => {
+  it('remembers only published settings and source; cancelled setup edits do not replace them', async () => {
+    const room = fakeRoom();
+    const source: ElectronScreenSource = {
+      id: 'window:23:0', name: 'Game', isScreen: false, appIconDataUrl: null, thumbnailDataUrl: '',
+    };
+    const config = { ...useVoiceStore.getState().screenShareConfig };
+    await publishScreenShare(room, makeStream(makeVideoTrack()), { sourceId: source.id, source, pickerMode: 'app' });
+    expect(getLastScreenShareSource()).toEqual({ id: source.id, name: source.name, isScreen: false, appIconDataUrl: null });
+    expect(useVoiceStore.getState().lastSuccessfulScreenShareConfig).toEqual(config);
+    useVoiceStore.getState().setScreenShareConfig({ fps: 30 });
+    expect(useVoiceStore.getState().lastSuccessfulScreenShareConfig?.fps).toBe(30);
+    useVoiceStore.setState({ isScreenSharing: false });
+    useVoiceStore.getState().setScreenShareConfig({ fps: 120 });
+    expect(useVoiceStore.getState().lastSuccessfulScreenShareConfig?.fps).toBe(30);
+    const persisted = JSON.parse(localStorage.getItem('backspace-voice-settings') ?? '{}');
+    expect(persisted.state.lastSuccessfulScreenShareConfig.fps).toBe(30);
+    expect(persisted.state).not.toHaveProperty('lastSource');
+  });
+
+  it('invalidates the quick-start source when the OS ends that capture', async () => {
+    const room = fakeRoom();
+    const source: ElectronScreenSource = {
+      id: 'window:23:0', name: 'Game', isScreen: false, appIconDataUrl: null, thumbnailDataUrl: '',
+    };
+    const video = { ...makeVideoTrack(), addEventListener: vi.fn() };
+    await publishScreenShare(room, makeStream(video), { sourceId: source.id, source, pickerMode: 'app' });
+    expect(getLastScreenShareSource()).not.toBe(null);
+    const onEnded = video.addEventListener.mock.calls.find(([event]) => event === 'ended')![1];
+    onEnded();
+    expect(getLastScreenShareSource()).toBe(null);
+  });
+
+  it('stops every staged track without publishing after a pending start was cancelled', async () => {
+    const room = fakeRoom();
+    const video = makeVideoTrack();
+    const audio = makeTrack('audio');
+    expect(await publishScreenShare(room, makeStream(video, audio), { isCurrent: () => false })).toBe(false);
+    expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
+    expect(video.stop).toHaveBeenCalledOnce();
+    expect(audio.stop).toHaveBeenCalledOnce();
+    expect(useVoiceStore.getState().lastSuccessfulScreenShareConfig).toBe(null);
+  });
+
+  it.each(['video', 'audio'])('rolls back a start abandoned during %s publication', async (during) => {
+    const room = fakeRoom();
+    const video = makeVideoTrack();
+    const audio = makeTrack('audio');
+    let current = true;
+    room.localParticipant.publishTrack.mockImplementation(async (_track: unknown, options: { source: string }) => {
+      if (options.source === (during === 'video' ? Track.Source.ScreenShare : Track.Source.ScreenShareAudio)) current = false;
+      return {};
+    });
+    expect(await publishScreenShare(room, makeStream(video, audio), { isCurrent: () => current })).toBe(false);
+    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, false);
+    if (during === 'audio') expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(audio, false);
+    else expect(room.localParticipant.publishTrack).not.toHaveBeenCalledWith(audio, expect.anything());
+    expect(video.stop).toHaveBeenCalledOnce();
+    expect(audio.stop).toHaveBeenCalledOnce();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+    expect(useVoiceStore.getState().lastSuccessfulScreenShareConfig).toBe(null);
+    expect(useUIStore.getState().toasts).toHaveLength(0);
+  });
+
   it('publishes VP9 directly without enabling the H.264 SDP hook', async () => {
     const room = fakeRoom();
     const video = makeVideoTrack();

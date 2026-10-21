@@ -921,8 +921,9 @@ function registerIpcHandlers(): void {
   // so the selection is guaranteed to be armed when the display-media handler
   // runs. Fire-and-forget left the two unordered — the handler could win, fall
   // back to the prompted flow, and leave this armed to hijack the next share.
-  ipcMain.handle('screen-share-preselect', (event, sourceId: string, shareAudio?: boolean) => {
+  ipcMain.handle('screen-share-preselect', (event, sourceId: string | null, shareAudio?: boolean) => {
     if (event.sender !== mainWindow?.webContents) return;
+    if (sourceId === null) { pendingScreenSelection = null; return; }
     if (typeof sourceId !== 'string' || !sourceId) return;
     pendingScreenSelection = { sourceId, shareAudio: shareAudio === true, at: Date.now() };
   });

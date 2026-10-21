@@ -465,7 +465,17 @@ checking browser/hardware encoding, actual frame dimensions and throughput.
 
 ### Start flow — `ScreenShareSetup` (stage, then publish)
 
-Every screen share starts from one screen, `ScreenShareSetup` (mounted once in `App.tsx`, opened through `screenShareSetupStore`). The control-bar button, the keybind, the mobile call screen and "Change stream" on the local tile all open it; nothing calls capture directly.
+The regular control-bar button, the keybind, the mobile call screen and "Change stream" on the local tile open `ScreenShareSetup` (mounted once in `App.tsx`, opened through `screenShareSetupStore`). The desktop also has a separate quick-start button beside the regular one.
+
+**Quick start.** `quickStartScreenShare` restores the last successfully used
+quality/audio settings and matches the last desktop source against a new source
+list by ID, name, kind and application icon. Source metadata is held only in the
+renderer session; the quality settings persist separately from unconfirmed
+setup edits. A missing/changed source, first use after a restart, browser, or
+system picker opens the normal setup instead of publishing another source.
+Both flows hold one synchronous start lock, preventing another click/keybind
+from arming a second capture. A call change/disconnect abandons a pending quick
+start, stops its captured tracks and rolls back any partial publication.
 
 The pipeline in `utils/screenShare.ts` is **stage → publish**:
 

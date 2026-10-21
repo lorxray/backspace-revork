@@ -210,6 +210,8 @@
     "stopSharing": "Stop Sharing",
     "shareScreen": "Share Screen",
     "shareOptions": "Screen Share Options",
+    "quickStartStream": "Start stream with last settings",
+    "startingStream": "Starting stream…",
     "toggleChat": "Toggle Chat",
     "exitFullscreen": "Exit Fullscreen (Esc)",
     "fullscreen": "Fullscreen",

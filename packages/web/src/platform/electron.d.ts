@@ -134,7 +134,8 @@ interface BackspaceElectronAPI {
    * (getDisplayMedia → onScreenShareSources → selectScreenSource).
    */
   getScreenSources?: () => Promise<ElectronScreenSource[]>;
-  preselectScreenSource?: (sourceId: string, shareAudio?: boolean) => Promise<void>;
+  /** Null disarms an abandoned, not yet consumed preselection. */
+  preselectScreenSource?: (sourceId: string | null, shareAudio?: boolean) => Promise<void>;
   /**
    * 'system' when the OS picks the source (Wayland screencast portal): the
    * renderer shows a "choose" card that triggers the portal on click instead

@@ -118,6 +118,16 @@ plus 1 px divider), divided by interface scale. `App`, `SpaceSidebar` and
 `ImagePreview` share it so fixed overlays and normal layout continue matching
 the native controls at every scale. See `design-system.md` → Interface scale.
 
+### Sidebar width
+
+The right edge of the desktop's left column is a draggable separator. Its
+preferred width (including the fixed 72 px space strip) is saved locally by
+`sidebarWidthStore`: default 312 px, range 280–520 px. `useSidebarWidth` clamps
+the rendered width to leave 400 layout pixels for content without overwriting
+the saved preference. Pointer coordinates account for interface scale. The
+floating user/call panel follows the same width. Double-click resets the width;
+arrow keys, Home and End also work. Mobile uses its existing layout.
+
 ### Focus Tracking
 
 Window `focus`/`blur` events send `window-focus-changed` (boolean) to the renderer via IPC. The web client uses this for notification suppression (no desktop notifications when the window is focused).

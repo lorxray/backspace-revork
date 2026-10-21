@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { ConnectionState } from 'livekit-client';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { getElectronAPI, isElectron, isElectronMac } from '../../platform/platform';
 import { useVoiceStore } from '../../stores/voiceStore';
-import { useScreenShareSetupStore } from '../../stores/screenShareSetupStore';
+import {
+  useScreenShareSetupStore, beginScreenShareStart, finishScreenShareStart,
+} from '../../stores/screenShareSetupStore';
 import { usePortalContainer } from '../../hooks/usePortalContainer';
 import { getActiveRoom } from '../../hooks/useLiveKit';
 import { broadcastVoiceStatus } from '../../utils/voice';
@@ -20,7 +23,7 @@ import { StreamQualityControls, StreamSummary, StreamHostSubtitle } from './Stre
 import { pickAutoStageSource, type ScreenSourceTab } from '../../utils/screenShareSources';
 
 /**
- * ScreenShareSetup — the one screen every screen share starts from.
+ * ScreenShareSetup — source selection and settings for a new screen share.
  *
  * Flow on every platform: pick a source → the capture is *staged* (live, but
  * not published; previewed here) → tune quality → "Start stream" publishes.
@@ -161,6 +164,7 @@ export function ScreenShareSetup() {
    * (the "Choose screen" button) takes a fresh one.
    */
   const stage = useCallback(async (claimed?: number) => {
+    if (claimed === undefined && !beginScreenShareStart()) return;
     const generation = claimed ?? ++stageGenerationRef.current;
     setError(null);
     setStaging(true);
@@ -189,6 +193,7 @@ export function ScreenShareSetup() {
         markPromptInFlight(false);
         setStaging(false);
       }
+      finishScreenShareStart();
     }
   }, [api, replaceStaged, markPromptInFlight]);
 
@@ -210,6 +215,7 @@ export function ScreenShareSetup() {
       api.selectScreenSource(sourceId, shareAudio);
       return;
     }
+    if (!beginScreenShareStart()) return;
     setSelectedId(sourceId);
     const generation = ++stageGenerationRef.current;
     if (api.preselectScreenSource) {
@@ -224,7 +230,13 @@ export function ScreenShareSetup() {
         console.error('[ScreenShareSetup] preselectScreenSource failed:', err);
       }
       // A newer tile was clicked while the preselection was in flight
-      if (generation !== stageGenerationRef.current) return;
+      if (generation !== stageGenerationRef.current) {
+        // This attempt still owns the shared lock, so clearing cannot disarm
+        // a newer quick start or another setup screen's selection.
+        try { await api.preselectScreenSource(null); } catch { /* The desktop may be exiting. */ }
+        finishScreenShareStart();
+        return;
+      }
     } else {
       // Older desktop: the main process will push sources; answer with this id when it does.
       pendingPromptIdRef.current = sourceId;
@@ -263,6 +275,12 @@ export function ScreenShareSetup() {
   useEffect(() => {
     if (!api) return;
     api.onScreenShareSources((incoming) => {
+      // The desktop can deliver its list after Cancel closed the setup. Deny
+      // that pending request so capture settles and releases the start lock.
+      if (!useScreenShareSetupStore.getState().isOpen) {
+        api.selectScreenSource(null);
+        return;
+      }
       const pendingId = pendingPromptIdRef.current;
       if (pendingId) {
         pendingPromptIdRef.current = null;
@@ -386,30 +404,45 @@ export function ScreenShareSetup() {
     const stream = stagedRef.current;
     const room = getActiveRoom();
     if (!stream || !room) { setError('startFailed'); return; }
+    if (!beginScreenShareStart()) return;
+    const generation = stageGenerationRef.current;
+    let abandoned = false;
+    const unsubscribe = useVoiceStore.subscribe((state) => {
+      if (!state.isLiveKitConnected || getActiveRoom() !== room) abandoned = true;
+    });
+    const isCurrent = () => !abandoned && generation === stageGenerationRef.current
+      && getActiveRoom() === room && room.state === ConnectionState.Connected
+      && useVoiceStore.getState().isLiveKitConnected;
     setStarting(true);
     setError(null);
-    const ok = await publishScreenShare(room, stream, { sourceId: selectedId, pickerMode });
+    let ok: boolean;
+    try {
+      ok = await publishScreenShare(room, stream, {
+        sourceId: selectedId,
+        pickerMode,
+        source: sources.find((source) => source.id === selectedId) ?? null,
+        isCurrent,
+      });
+    } finally {
+      unsubscribe();
+      finishScreenShareStart();
+    }
     if (!ok) {
       // publishScreenShare stopped the tracks on failure
       stagedRef.current = null;
       setStaged(null);
       setSelectedId(null);
       setStarting(false);
-      setError('startFailed');
+      if (generation === stageGenerationRef.current) setError('startFailed');
       return;
     }
     broadcastVoiceStatus();
-    // Remember what was shared, not what was merely staged: a pick the user
-    // backed out of should not be the thing that comes up next time. Only a
-    // tile we enumerated has an id worth keeping — a browser or portal capture
-    // has none, and stores null so a stale one cannot outlive it.
-    useVoiceStore.getState().setLastScreenShareSourceId(selectedId);
     // Ownership moved to LiveKit: do not stop the tracks on close
     stagedRef.current = null;
     setStaged(null);
     setStarting(false);
     close();
-  }, [close, selectedId, pickerMode]);
+  }, [close, selectedId, pickerMode, sources]);
 
   const screens = useMemo(() => sources.filter((s) => s.isScreen), [sources]);
   const windows = useMemo(() => {

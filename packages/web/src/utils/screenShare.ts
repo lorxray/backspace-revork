@@ -12,6 +12,7 @@ import { openScreenShareSetup } from '../stores/screenShareSetupStore';
 import i18n from '../i18n';
 import { isElectron, getElectronAPI } from '../platform/platform';
 import { acquireAppExcludedSystemAudio } from './systemAudioSource';
+import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
   STANDARD_RESOLUTIONS, STANDARD_FRAMERATES, WIDTH_MAP,
@@ -463,7 +464,7 @@ export function isScreenCaptureSupported(): boolean {
  * portal raise AbortError. Shared so a cancellation never also reports a fault.
  */
 export function isCaptureCancellation(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error) && !(typeof DOMException !== 'undefined' && err instanceof DOMException)) return false;
   return err.name === 'NotAllowedError' || err.name === 'AbortError';
 }
 
@@ -612,6 +613,10 @@ export interface PublishScreenShareOptions {
   sourceId?: string | null;
   /** Who picked the source (`getScreenSharePickerMode`); only `'app'` can be preselected again. */
   pickerMode?: ScreenSharePickerMode | null;
+  /** Freshly enumerated desktop metadata; never restored from storage. */
+  source?: ElectronScreenSource | null;
+  /** A pending start was cancelled or its original call disconnected. */
+  isCurrent?: () => boolean;
 }
 
 export async function publishScreenShare(
@@ -623,7 +628,10 @@ export async function publishScreenShare(
   const opts = buildScreenShareOptions(config);
   const needsH264SdpPatch = config.codec === 'h264';
   const videoTrack = stream.getVideoTracks()[0];
-  if (!videoTrack || videoTrack.readyState !== 'live') return false;
+  if (!videoTrack || videoTrack.readyState !== 'live' || options.isCurrent?.() === false) {
+    stopStagedCapture(stream);
+    return false;
+  }
   resolveNativeOverdrive(videoTrack, config, opts);
   const capturedAudio = stream.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
   // The toggle as it stands now, not as it stood at capture: audio captured
@@ -637,6 +645,7 @@ export async function publishScreenShare(
   if (needsH264SdpPatch) activateHwOverdrive();
 
   let videoPublished = false;
+  let audioPublished = false;
   try {
     videoTrack.contentHint = opts.contentHint;
     await room.localParticipant.publishTrack(videoTrack, {
@@ -657,7 +666,16 @@ export async function publishScreenShare(
       } : {}),
     });
     videoPublished = true;
-    if (audioToPublish) await publishScreenShareAudioTrack(room, audioToPublish);
+    if (videoTrack.readyState !== 'live' || options.isCurrent?.() === false) {
+      throw new DOMException('Screen share start cancelled', 'AbortError');
+    }
+    if (audioToPublish) {
+      await publishScreenShareAudioTrack(room, audioToPublish);
+      audioPublished = true;
+    }
+    if (videoTrack.readyState !== 'live' || options.isCurrent?.() === false) {
+      throw new DOMException('Screen share start cancelled', 'AbortError');
+    }
 
     _requestedPublishedScreenShareCodec = opts.publish.videoCodec;
     publishedScreenShareSignatures.set(room, screenSharePublishSignature(opts, videoTrack));
@@ -669,12 +687,30 @@ export async function publishScreenShare(
     useVoiceStore.setState({
       isScreenSharing: true,
       screenShareAudio: audioToPublish ? 'published' : idleScreenShareAudioState(),
+      lastSuccessfulScreenShareConfig: { ...config },
     });
+    if (options.source !== undefined) {
+      rememberScreenShareSource(options.source);
+      useVoiceStore.getState().setLastScreenShareSourceId(options.source?.id ?? null);
+      const savedSource = getLastScreenShareSource();
+      // An OS-ended capture can mean that the window closed. Reopening with a
+      // reused native handle must go through the setup screen again.
+      videoTrack.addEventListener?.('ended', () => {
+        if (getLastScreenShareSource() === savedSource) rememberScreenShareSource(null);
+      }, { once: true });
+    }
     scheduleScreenShareOverdrive(room);
     scheduleEncoderDetection(room, config.codec, videoTrack.id);
     return true;
   } catch (err) {
-    console.error('[ScreenShare] Failed to publish screen share:', err);
+    if (!isCaptureCancellation(err)) console.error('[ScreenShare] Failed to publish screen share:', err);
+    if (audioPublished && audioToPublish) {
+      try {
+        await room.localParticipant.unpublishTrack(audioToPublish, false);
+      } catch (unpublishErr) {
+        console.error('[ScreenShare] Failed to roll back the audio publication:', unpublishErr);
+      }
+    }
     // A failure after the video went out would otherwise leave a dead
     // publication after its underlying staged track is stopped.
     if (videoPublished) {
@@ -684,7 +720,7 @@ export async function publishScreenShare(
         console.error('[ScreenShare] Failed to roll back the video publication:', unpublishErr);
       }
     }
-    if (audioToPublish && err instanceof Error && err.name !== 'NotAllowedError') {
+    if (audioToPublish && !isCaptureCancellation(err)) {
       useUIStore.getState().addToast(
         i18n.t('voice:streamSettings.systemAudioStartFailed'),
         'warning',

@@ -122,6 +122,8 @@
     "loading": "Backspace wird geladen"
   },
   "chrome": {
+    "resizeSidebar": "Breite der linken Seitenleiste ändern",
+    "resizeSidebarHint": "Zum Ändern der Breite ziehen. Doppelklick setzt sie zurück. Pfeiltasten passen die Breite an.",
     "toggleMemberList": "Mitgliederliste ein- oder ausblenden",
     "closeSettings": "Einstellungen schließen"
   },

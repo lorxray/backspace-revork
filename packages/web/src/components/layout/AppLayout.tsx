@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import { SpaceSidebar } from './SpaceSidebar';
 import { ChannelSidebar } from './ChannelSidebar';
+import { SidebarResizeHandle } from './SidebarResizeHandle';
 import { MainContent } from './MainContent';
 import { RightPanel } from './RightPanel';
 import { MobileShell } from './MobileShell';
@@ -36,6 +37,7 @@ import { InstanceUpdateToast } from '../ui/InstanceUpdateToast';
 import { ContextMenuRenderer } from '../ui/ContextMenuRenderer';
 import { useAuth } from '../../hooks/useAuth';
 import { useDelayedLoading } from '../../hooks/useDelayedLoading';
+import { useSidebarWidth } from '../../hooks/useSidebarWidth';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useFederationToasts } from '../../hooks/useFederationToasts';
 import { useLiveKit } from '../../hooks/useLiveKit';
@@ -51,6 +53,8 @@ import { isAppSystemAudioSource, userDevicesSignature } from '../../utils/system
 
 export function AppLayout() {
   const { t } = useTranslation('common');
+  const sidebarWidth = useSidebarWidth();
+  const sidebarStyle = { '--sidebar-width': `${sidebarWidth.width}px` } as React.CSSProperties;
   const { spaceId, channelId } = useParams<{ spaceId?: string; channelId?: string }>();
   const navigate = useNavigate();
   
@@ -357,7 +361,7 @@ export function AppLayout() {
 
   if (!user || showBootSkeleton) {
     return (
-      <div className="h-full flex bg-surface-base" role="status" aria-label={t('app.loading')}>
+      <div className="h-full flex bg-surface-base" style={sidebarStyle} role="status" aria-label={t('app.loading')}>
         {/* Space strip */}
         <div className="w-[72px] hidden desktop:flex flex-col items-center gap-3 pt-4 bg-surface-base flex-shrink-0">
           {Array.from({ length: 5 }, (_, i) => (
@@ -366,7 +370,7 @@ export function AppLayout() {
         </div>
 
         {/* Sidebar */}
-        <div className="w-60 hidden desktop:flex bg-surface-channel flex-shrink-0 flex-col pt-4 px-2">
+        <div className="w-[calc(var(--sidebar-width)_-_72px)] hidden desktop:flex bg-surface-channel flex-shrink-0 flex-col pt-4 px-2">
           {/* Header bar */}
           <div className="skeleton skeleton-bar w-[60%] h-4 mb-6 ml-2" />
           {/* Channel items */}
@@ -449,11 +453,12 @@ export function AppLayout() {
 
   // ── Desktop layout ──
   return (
-    <div className="h-full flex flex-col desktop:grid desktop:grid-cols-[312px_1fr] desktop:grid-rows-[minmax(0,1fr)] bg-surface-base overflow-hidden">
+    <div className="h-full flex flex-col desktop:grid desktop:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] desktop:grid-rows-[minmax(0,1fr)] bg-surface-base overflow-hidden" style={sidebarStyle}>
       {/* Space sidebar - always visible on desktop */}
-      <div className={`fixed inset-y-0 left-0 z-40 flex w-[312px] transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full desktop:translate-x-0'} desktop:static desktop:z-auto desktop:w-auto desktop:transform-none`}>
+      <div id="desktop-channel-sidebar" className={`fixed inset-y-0 left-0 z-40 flex w-[var(--sidebar-width)] transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full desktop:translate-x-0'} desktop:relative desktop:z-auto desktop:w-auto desktop:transform-none`}>
         <SpaceSidebar />
         <ChannelSidebar />
+        <SidebarResizeHandle {...sidebarWidth} />
       </div>
 
       {/* Main content area */}

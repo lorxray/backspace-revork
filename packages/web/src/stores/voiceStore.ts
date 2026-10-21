@@ -123,6 +123,8 @@ export interface VoiceState {
   cameraDeviceId: string | null; // null = auto-select on next camera enable
   focusedParticipantId: string | null;
   screenShareConfig: ScreenShareConfig;
+  /** Last published settings, separate from unconfirmed setup edits. */
+  lastSuccessfulScreenShareConfig: ScreenShareConfig | null;
   /**
    * The source shared last time, so the setup screen can stage it again
    * without being asked. Desktop only: browsers do not let the page name a
@@ -315,6 +317,7 @@ export const useVoiceStore = create<VoiceState>()(
       cameraDeviceId: null,
       focusedParticipantId: null,
       screenShareConfig: { height: 720, fps: 60, mode: 'gaming', customBitrateKbps: null, shareAudio: !isElectron(), codec: 'vp9' },
+      lastSuccessfulScreenShareConfig: null,
       lastScreenShareSourceId: null,
       participantVolumes: new Map(),
       setParticipantVolume: (userId, volume) => {
@@ -641,6 +644,11 @@ export const useVoiceStore = create<VoiceState>()(
       setLastScreenShareSourceId: (sourceId) => set({ lastScreenShareSourceId: sourceId }),
       setScreenShareConfig: (config) => set((state) => ({
         screenShareConfig: { ...state.screenShareConfig, ...config },
+        // While live these are changes to the running stream. Edits in a
+        // cancelled setup screen must not replace its last used settings.
+        ...(state.isScreenSharing ? {
+          lastSuccessfulScreenShareConfig: { ...state.screenShareConfig, ...config },
+        } : {}),
       })),
       noiseSuppression: true,
       echoCancellation: true,
@@ -987,6 +995,7 @@ export const useVoiceStore = create<VoiceState>()(
         outputDeviceId: state.outputDeviceId,
         cameraDeviceId: state.cameraDeviceId,
         screenShareConfig: state.screenShareConfig,
+        lastSuccessfulScreenShareConfig: state.lastSuccessfulScreenShareConfig,
         lastScreenShareSourceId: state.lastScreenShareSourceId,
         echoCancellation: state.echoCancellation,
         autoGainControl: state.autoGainControl,

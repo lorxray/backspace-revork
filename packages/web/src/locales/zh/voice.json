@@ -210,6 +210,8 @@
     "stopSharing": "停止共享",
     "shareScreen": "共享屏幕",
     "shareOptions": "屏幕共享选项",
+    "quickStartStream": "使用上次设置开始直播",
+    "startingStream": "正在开始直播…",
     "toggleChat": "切换聊天窗口",
     "exitFullscreen": "退出全屏 (Esc)",
     "fullscreen": "全屏",
