@@ -320,8 +320,12 @@ function updateEncodingCaps(
   encodings: RTCRtpEncodingParameters[],
   options: OverdriveOptions,
   preservePausedSentinels: boolean,
+  h264 = false,
 ): void {
   encodings.forEach((encoding, index) => {
+    // Independent bitrate copies do not need temporal layering. Keep the
+    // negotiated mode in LiveKit's caches when dynacast resumes an encoding.
+    if (h264) (encoding as RTCRtpEncodingParameters & { scalabilityMode?: string }).scalabilityMode = 'L1T1';
     // Firefox represents a paused layer by bitrate/resolution sentinels as
     // well as active=false. Leave those in place until LiveKit resumes it.
     if (preservePausedSentinels && encoding.active === false && encoding.maxBitrate === 10) return;
@@ -373,8 +377,10 @@ export async function applyOverdrive(
 
       const cachedUpdates = source === Track.Source.ScreenShare
         ? stageScreenSharePublishOptions(localPublication, state, pubMediaTrack, options) : [];
+      const h264 = (localPublication.options?.videoCodec ?? state.publishOptions?.videoCodec
+        ?? _requestedPublishedScreenShareCodec) === 'h264';
       if (source === Track.Source.ScreenShare) {
-        updateEncodingCaps(params.encodings, options, true);
+        updateEncodingCaps(params.encodings, options, true, h264);
       } else {
         const highest = params.encodings[params.encodings.length - 1]!;
         highest.maxBitrate = options.maxBitrate;
@@ -390,7 +396,7 @@ export async function applyOverdrive(
           delete primaryPatch.backupCodec;
           Object.assign(cached, primaryPatch);
         }
-        if (state.encodings) updateEncodingCaps(state.encodings, options, false);
+        if (state.encodings) updateEncodingCaps(state.encodings, options, false, h264);
         for (const backup of state.simulcastCodecs?.values() ?? []) {
           if (!backup.sender || backup.sender === sender) continue;
           const backupOptions = {
@@ -626,7 +632,7 @@ export async function publishScreenShare(
 ): Promise<boolean> {
   const config = useVoiceStore.getState().screenShareConfig;
   const opts = buildScreenShareOptions(config);
-  const needsH264SdpPatch = config.codec === 'h264';
+  const needsH264Setup = config.codec === 'h264';
   const videoTrack = stream.getVideoTracks()[0];
   if (!videoTrack || videoTrack.readyState !== 'live' || options.isCurrent?.() === false) {
     stopStagedCapture(stream);
@@ -641,8 +647,8 @@ export async function publishScreenShare(
     ? { id: options.sourceId, pickerMode: options.pickerMode ?? null }
     : null;
 
-  // SDP profile override must be in place before the publish negotiation
-  if (needsH264SdpPatch) activateHwOverdrive();
+  // Select a genuinely supported H264 profile before the publish negotiation.
+  if (needsH264Setup) activateHwOverdrive(videoTrack.id);
 
   let videoPublished = false;
   let audioPublished = false;
@@ -730,9 +736,8 @@ export async function publishScreenShare(
     stopStagedCapture(stream);
     return false;
   } finally {
-    // The global SDP hook is negotiation-scoped. Leaving it installed would
-    // affect camera/microphone renegotiations later in the call.
-    if (needsH264SdpPatch) deactivateHwOverdrive();
+    // The targeted sender setup is negotiation-scoped.
+    if (needsH264Setup) deactivateHwOverdrive();
   }
 }
 
@@ -1152,6 +1157,7 @@ interface EncoderStatsEntry extends RTCStats {
   codecId?: string;
   mimeType?: string;
   bytesSent?: number;
+  framesEncoded?: number;
   active?: boolean;
   encoderImplementation?: string;
 }
@@ -1183,7 +1189,7 @@ async function inspectPublishedEncoder(
 
   const stats = await sender.getStats();
   const codecById = new Map<string, string>();
-  const outbound: Array<{ codec: 'vp9' | 'h264' | 'vp8'; bytesSent: number; encoderImpl: string | null }> = [];
+  const outbound: Array<{ codec: 'vp9' | 'h264' | 'vp8'; bytesSent: number; framesEncoded: number; encoderImpl: string | null }> = [];
   stats.forEach((report) => {
     const entry = report as EncoderStatsEntry;
     if (entry.type === 'codec' && entry.mimeType) codecById.set(entry.id, entry.mimeType);
@@ -1197,6 +1203,7 @@ async function inspectPublishedEncoder(
     outbound.push({
       codec,
       bytesSent: entry.bytesSent ?? 0,
+      framesEncoded: entry.framesEncoded ?? 0,
       encoderImpl: entry.encoderImplementation ?? null,
     });
   });
@@ -1213,7 +1220,7 @@ async function inspectPublishedEncoder(
   _publishedScreenShareCodec = selected.codec;
 
   const h264Implementations = outbound
-    .filter((entry) => entry.codec === 'h264')
+    .filter((entry) => entry.codec === 'h264' && (entry.bytesSent > 0 || entry.framesEncoded > 0))
     .map((entry) => entry.encoderImpl)
     .filter((value): value is string => value != null);
   if (requestedCodec === 'h264' && h264Implementations.some((value) => /openh264/i.test(value))) {

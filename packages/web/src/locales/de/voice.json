@@ -145,7 +145,7 @@
     "systemAudioAddFailed": "Systemaudio konnte dem Stream nicht hinzugefügt werden.",
     "systemAudioAdding": "Systemaudio wird hinzugefügt…",
     "systemAudioLiveUnavailable": "Systemaudio lässt sich nur beim Start eines Streams hinzufügen. Starte den Stream neu, um es einzuschließen.",
-    "softwareH264Fallback": "Hardware-H264-Kodierung ist nicht verfügbar. OpenH264 wird als Software-Encoder verwendet; VP9 kann schneller sein.",
+    "softwareH264Fallback": "H.264 verwendet Software-Kodierung. Wenn der Stream ruckelt, reduziere die FPS oder wähle VP9.",
     "degradation": {
       "maintainResolution": "Auflösung halten",
       "maintainFramerate": "Framerate halten",

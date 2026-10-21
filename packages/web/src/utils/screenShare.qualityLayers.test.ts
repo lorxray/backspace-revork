@@ -304,9 +304,26 @@ describe('screen-share bitrate simulcast', () => {
     expect(cachedEncodings.every(item => item.scaleResolutionDownBy === 1)).toBe(true);
     expect(cachedOptions.screenShareEncoding).toMatchObject({ maxBitrate: 20_000_000, maxFramerate: 90 });
     expect(trackOptions.screenShareSimulcastLayers?.map(layer => layer.encoding.maxBitrate)).toEqual([5_000_000, 10_000_000]);
+    expect(sent.encodings.every((item: RTCRtpEncodingParameters & { scalabilityMode?: string }) => item.scalabilityMode === 'L1T1')).toBe(true);
+    expect(cachedEncodings.every(item => (item as RTCRtpEncodingParameters & { scalabilityMode?: string }).scalabilityMode === 'L1T1')).toBe(true);
     expect(layers.map(layer => layer.bitrate)).toEqual([7_500_000, 15_000_000, 30_000_000]);
     expect(sendUpdateVideoLayers).not.toHaveBeenCalled();
     expect(backupSender.setParameters.mock.calls[0]![0].encodings[0]).toMatchObject({ active: false, maxBitrate: 6_666_667, maxFramerate: 30 });
     expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('preserves VP9 temporal scalability and does not apply H264 mode to the VP8 backup', async () => {
+    const share = runningShare();
+    share.cachedOptions.videoCodec = 'vp9';
+    share.trackOptions.videoCodec = 'vp9';
+    share.sender.getParameters.mockReturnValue({ encodings: [
+      { active: true, maxBitrate: 20_000_000, maxFramerate: 90, scalabilityMode: 'L1T3' },
+    ] } as unknown as ReturnType<typeof share.sender.getParameters>);
+
+    expect(await applyOverdrive(share.room, Track.Source.ScreenShare, share.opts.overdrive)).toBe(true);
+    const parameters = share.sender.setParameters.mock.calls[0]![0] as RTCRtpSendParameters;
+    expect((parameters.encodings[0] as RTCRtpEncodingParameters & { scalabilityMode?: string }).scalabilityMode).toBe('L1T3');
+    const backupParameters = share.backupSender.setParameters.mock.calls[0]![0] as RTCRtpSendParameters;
+    expect(backupParameters.encodings[0]).not.toHaveProperty('scalabilityMode');
   });
 });

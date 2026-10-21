@@ -145,7 +145,7 @@
     "systemAudioAddFailed": "Não foi possível adicionar o áudio do sistema à transmissão.",
     "systemAudioAdding": "Adicionando áudio do sistema…",
     "systemAudioLiveUnavailable": "O áudio do sistema só pode ser adicionado quando a transmissão começa. Reinicie a transmissão para incluí-lo.",
-    "softwareH264Fallback": "A codificação H264 por hardware não está disponível. O OpenH264 por software está em uso; o VP9 pode ter melhor desempenho.",
+    "softwareH264Fallback": "O H.264 está usando codificação por software. Se a transmissão estiver lenta, reduza o FPS ou escolha VP9.",
     "degradation": {
       "maintainResolution": "manter resolução",
       "maintainFramerate": "manter taxa de quadros",

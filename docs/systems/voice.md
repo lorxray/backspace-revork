@@ -392,13 +392,20 @@ ScreenShareConfig {
 - Scales proportionally: `baseKbps * (capturedPixels / knownPixels) * (fps / knownFps)`
 
 ### Codec and sender parameters
-- H.264 uses an SDP profile override only during its publish negotiation; the
-  hook is removed in `finally` so later camera or microphone negotiations are
-  unaffected.
+- Before the first H.264 screen offer, a track-scoped hook prefers Main and
+  High profiles from the browser's actual codec capabilities, retaining
+  Baseline and other negotiated fallbacks. It never rewrites an SDP profile
+  into an unsupported one. The hook is removed in `finally`; camera senders
+  and unrelated peer connections retain their existing preferences.
+- H.264 bitrate copies use `L1T1`, applied before the offer and retained in
+  sender parameters and LiveKit's encoding caches when dynacast resumes a
+  layer. VP9 temporal scalability and the VP8 backup keep their own modes.
 - Selecting H.264 does not guarantee hardware encoding. The negotiated codec
   and `encoderImplementation` reported by WebRTC stats are shown in the
-  connection inspector. If Chromium reports the OpenH264 software fallback,
-  the publisher also receives a localized warning. Requested publication state
+  connection inspector. If a H.264 layer actually encodes frames or sends bytes
+  using OpenH264, the publisher receives a localized software-encoding warning.
+  Dormant encoders do not establish that hardware encoding is unavailable.
+  Requested publication state
   is tracked separately from the codec confirmed by outbound stats, so codec
   changes can be serialized without presenting the requested value as a
   negotiated result. Stats inspection retries briefly while the sender or

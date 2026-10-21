@@ -145,7 +145,7 @@
     "systemAudioAddFailed": "Could not add system audio to the stream.",
     "systemAudioAdding": "Adding system audio…",
     "systemAudioLiveUnavailable": "System audio can only be added when a stream starts. Restart the stream to include it.",
-    "softwareH264Fallback": "Hardware H264 encoding is unavailable. Software OpenH264 is in use; VP9 may perform better.",
+    "softwareH264Fallback": "H.264 is using software encoding. If the stream is slow, lower the FPS or choose VP9.",
     "degradation": {
       "maintainResolution": "hold resolution",
       "maintainFramerate": "hold framerate",

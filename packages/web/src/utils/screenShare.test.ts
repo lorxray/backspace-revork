@@ -179,7 +179,7 @@ describe('screen-share media options', () => {
     expect(useUIStore.getState().toasts).toHaveLength(0);
   });
 
-  it('publishes VP9 directly without enabling the H.264 SDP hook', async () => {
+  it('publishes VP9 directly without enabling the H.264 sender hook', async () => {
     const room = fakeRoom();
     const video = makeVideoTrack();
     attachPublishedSender(room, video, [
@@ -221,6 +221,7 @@ describe('screen-share media options', () => {
     );
     expect(getPublishedScreenShareCodec()).toBe('h264');
     expect(sdp.activate).toHaveBeenCalledOnce();
+    expect(sdp.activate).toHaveBeenCalledWith(video.id);
     expect(sdp.deactivate).toHaveBeenCalledOnce();
 
     await stopScreenShare(room);
@@ -399,6 +400,57 @@ describe('screen-share media options', () => {
       'warning',
       8000,
     );
+  });
+
+  it('waits for encoded H264 media before reporting software encoding', async () => {
+    useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
+    const video = makeVideoTrack();
+    const room = fakeRoom();
+    const reports: Array<[string, Record<string, unknown>]> = [
+      ['codec-h264', { id: 'codec-h264', type: 'codec', mimeType: 'video/H264' }],
+      ['outbound-h264', {
+        id: 'outbound-h264', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264',
+        bytesSent: 0, framesEncoded: 0, encoderImplementation: 'OpenH264',
+      }],
+    ];
+    const sender = attachPublishedSender(room, video, reports);
+    const addToast = vi.spyOn(useUIStore.getState(), 'addToast');
+
+    await publishScreenShare(room, makeStream(video));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(addToast).not.toHaveBeenCalled();
+
+    sender.getStats.mockResolvedValue(new Map([
+      reports[0]!,
+      ['outbound-h264', { ...reports[1]![1], bytesSent: 5000, framesEncoded: 2 }],
+    ]));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(addToast).toHaveBeenCalledWith(
+      i18n.t('voice:streamSettings.softwareH264Fallback'), 'warning', 8000,
+    );
+  });
+
+  it('does not report a dormant software layer as the active H264 encoder', async () => {
+    useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
+    const video = makeVideoTrack();
+    const room = fakeRoom();
+    attachPublishedSender(room, video, [
+      ['codec-h264', { id: 'codec-h264', type: 'codec', mimeType: 'video/H264' }],
+      ['outbound-q', {
+        id: 'outbound-q', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264',
+        bytesSent: 0, framesEncoded: 0, encoderImplementation: 'OpenH264',
+      }],
+      ['outbound-f', {
+        id: 'outbound-f', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264',
+        bytesSent: 5000, framesEncoded: 2, encoderImplementation: 'ExternalEncoder',
+      }],
+    ]);
+    const addToast = vi.spyOn(useUIStore.getState(), 'addToast');
+
+    await publishScreenShare(room, makeStream(video));
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(addToast).not.toHaveBeenCalled();
+    expect(getPublishedScreenShareCodec()).toBe('h264');
   });
 
   it('migrates older saved settings to VP9 once and persists subsequent choices', async () => {
