@@ -158,7 +158,7 @@ describe('screen-share media options', () => {
 
     expect(await publishScreenShare(room, makeStream(video, audio))).toBe(false);
 
-    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, false);
+    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, true);
     expect(video.stop).toHaveBeenCalledOnce();
     expect(audio.stop).toHaveBeenCalledOnce();
     expect(useUIStore.getState().toasts).toEqual([
@@ -169,6 +169,24 @@ describe('screen-share media options', () => {
       phase: 'audio-publish', error: { name: 'Error', message: failure.message },
     });
     expect(useVoiceStore.getState().isScreenSharing).toBe(false);
+  });
+
+  it('stops SDK backup capture branches when an audio failure rolls video back', async () => {
+    const room = fakeRoom();
+    const video = makeVideoTrack();
+    const audio = makeTrack('audio');
+    const backup = makeVideoTrack('sdk-vp8-backup');
+    room.localParticipant.publishTrack.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('audio rejected'));
+    room.localParticipant.unpublishTrack.mockImplementation(async (_track: unknown, stop: boolean) => {
+      // LocalVideoTrack.stop owns the SDK's backup clone; stopping the input
+      // MediaStream alone cannot release that independent capture branch.
+      if (stop) backup.stop();
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await publishScreenShare(room, makeStream(video, audio))).toBe(false);
+
+    expect(backup.stop).toHaveBeenCalledOnce();
   });
 
   it('does not record cancellation as a failed publication or display an error toast', async () => {
@@ -235,7 +253,7 @@ describe('screen-share media options', () => {
       return {};
     });
     expect(await publishScreenShare(room, makeStream(video, audio), { isCurrent: () => current })).toBe(false);
-    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, false);
+    expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(video, true);
     if (during === 'audio') expect(room.localParticipant.unpublishTrack).toHaveBeenCalledWith(audio, false);
     else expect(room.localParticipant.publishTrack).not.toHaveBeenCalledWith(audio, expect.anything());
     expect(video.stop).toHaveBeenCalledOnce();

@@ -1586,6 +1586,13 @@ summary, fetched when the first diagnostic arrives. Renderer-supplied GPU
 claims are ignored. This distinguishes profile negotiation from an encoder
 fallback without requiring DevTools or a server update.
 
+The bundled client also retires the exact unpublished screen-share video
+transceivers after SDK teardown. This releases idle hardware encoder sessions
+between shares while the call stays connected; it prevents repeated starts
+from consuming the hardware encoder limit and falling back to software.
+See the screen-share lifecycle in `docs/systems/voice.md`. Distributing the
+updated desktop bundle supplies this fix without changing the instance server.
+
 Only explicitly allowed diagnostic fields are saved. Screen pixels, audio
 content, source titles, URLs, credentials and SDP are not stored. The file is
 bounded to 256 KiB and starts a fresh segment when full. A logging failure

@@ -514,6 +514,19 @@ Source picking differs by platform, the rest of the screen is identical (drawer,
 
 A `shareAudio` change after staging is honoured at Start where it can be: turned off, the staged audio is not published; turned on, the desktop app adds loopback audio right after Start when the capture came from a tile it listed in picker mode `'app'` (`canAddScreenShareAudioLater(selectedId, pickerMode)`). Only where that does not apply (browsers, system-picker and prompted desktop captures) does the screen show the re-pick note. `handleStart` passes the tile's id and the picker mode to `publishScreenShare` for that reason. Codec and encoding changes while live go through `republishScreenShare(room)`: it clones the video track before stopping and unpublishing the old branch, so the replacement continues the same capture without another picker prompt. The clone supplies a fresh signalling CID; reusing the old CID immediately can leave LiveKit's AddTrack queued until the server closes the old track, causing a publication timeout before the first video packets. The independent system-audio publication stays in place with the same SID and loopback ownership. `handleScreenShareUnpublished` ignores the unpublish that this swap emits; a cancelled or failed replacement stops the clone and ends the share cleanly.
 
+**Release stopped encoders.** LiveKit 2.22.3 detaches unpublished video senders
+but leaves their transceivers inactive. Chromium can retain the associated
+hardware encoders until the peer connection closes; repeated shares can exhaust
+the available hardware sessions and make H.264 fall back to OpenH264.
+`screenShareEncoderLifecycle` wraps this room's participant before the first
+screen publication. It remembers only that publication's primary and backup
+senders, waits for normal SDK unpublish, then stops their detached transceivers
+and negotiates their removal through the SDK. The additional negotiation keeps
+the room, camera and independent audio publications connected. Replacement or
+reconnecting publishers are excluded. Orphan SDK backup capture clones are
+stopped without ending a primary track retained for republish. Failed-start
+rollback uses SDK track stopping so its backup captures are released too.
+
 **Who broadcasts the stop.** `voice_status` is what carries `isScreenSharing` to clients that are not in the LiveKit room (`MobileSpacesScreen`, `MobileVoiceJoinSheet` read `wsStatus?.isScreenSharing`), so every stop has to emit it or a stale "sharing" indicator stays up. `stopScreenShare()` and `handleScreenShareUnpublished()` each call `broadcastVoiceStatus()` themselves rather than leaving it to their callers, which covers all four routes: the control-bar button, the stream-tile "Stop Streaming" item, `changeScreenShare()`, and the OS/browser stop bar arriving via `RoomEvent.LocalTrackUnpublished`. Callers must not repeat it.
 
 Exactly one broadcast per stop. `unpublishTrack` emits `LocalTrackUnpublished` *synchronously*, so an explicit stop reaches `handleScreenShareUnpublished()` in the middle of `stopScreenShare()`; a `_stopping` flag makes the handler defer to the caller, the same way `_republishing` makes it ignore a codec swap. Unpublishing is per publication rather than per loop, so a throw on the video track cannot leave the screen-share audio published after `isScreenSharing` has already gone false. A republish whose fresh publish fails broadcasts too — the swap suppressed the handler and a publish that never landed emits no rollback event, so nothing else would. All three are pinned by `utils/screenShare.stopPaths.test.ts`.

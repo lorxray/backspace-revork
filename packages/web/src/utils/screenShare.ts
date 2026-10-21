@@ -4,6 +4,7 @@ import { useVoiceStore } from '../stores/voiceStore';
 import type { ScreenShareConfig, ScreenShareAudioState } from '../stores/voiceStore';
 import { getStreamHostLimits } from './streamHostLimits';
 import { getPublisherPC, getMediaStreamTrack } from './livekitInternals';
+import { installScreenShareEncoderLifecycle } from './screenShareEncoderLifecycle';
 import { broadcastVoiceStatus } from './voice';
 import { encodeShareSignal, type ShareSignal } from './streamWatchProtocol';
 import { activate as activateHwOverdrive, deactivate as deactivateHwOverdrive } from './hwOverdrive';
@@ -664,6 +665,7 @@ export async function publishScreenShare(
   let audioPublicationAttempted = false;
   try {
     videoTrack.contentHint = opts.contentHint;
+    installScreenShareEncoderLifecycle(room);
     await room.localParticipant.publishTrack(videoTrack, {
       source: Track.Source.ScreenShare,
       videoCodec: opts.publish.videoCodec,
@@ -737,7 +739,7 @@ export async function publishScreenShare(
     // publication after its underlying staged track is stopped.
     if (videoPublished) {
       try {
-        await room.localParticipant.unpublishTrack(videoTrack, false);
+        await room.localParticipant.unpublishTrack(videoTrack, true);
       } catch (unpublishErr) {
         console.error('[ScreenShare] Failed to roll back the video publication:', unpublishErr);
       }
