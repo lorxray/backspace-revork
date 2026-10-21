@@ -14,7 +14,7 @@ import { isElectron, getElectronAPI } from '../platform/platform';
 import { acquireAppExcludedSystemAudio } from './systemAudioSource';
 import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
 import type { LastScreenShareSource } from './lastScreenShareSource';
-import { logScreenShareFailure } from './screenShareDiagnostics';
+import { logScreenShareEncoder, logScreenShareFailure } from './screenShareDiagnostics';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
   STANDARD_RESOLUTIONS, STANDARD_FRAMERATES, WIDTH_MAP,
@@ -338,8 +338,12 @@ function updateEncodingCaps(
             : 2 ** (encodings.length - index - 1);
     encoding.maxBitrate = Math.round(options.maxBitrate / divisor);
     encoding.maxFramerate = options.maxFramerate;
-    encoding.priority = 'high';
-    encoding.networkPriority = 'high';
+    // Chromium exposes these sender-wide settings through the first encoding.
+    // Changing them on another simulcast RID rejects the entire caps update.
+    if (index === 0) {
+      encoding.priority = 'high';
+      encoding.networkPriority = 'high';
+    }
     // Only independent simulcast encodings have a RID. VP9's single SVC
     // encoding must retain its scalability configuration.
     if (encodings.length > 1 && encoding.rid) encoding.scaleResolutionDownBy = 1;
@@ -387,8 +391,8 @@ export async function applyOverdrive(
         const highest = params.encodings[params.encodings.length - 1]!;
         highest.maxBitrate = options.maxBitrate;
         highest.maxFramerate = options.maxFramerate;
-        highest.priority = 'high';
-        highest.networkPriority = 'high';
+        params.encodings[0]!.priority = 'high';
+        params.encodings[0]!.networkPriority = 'high';
       }
       params.degradationPreference = options.degradationPreference;
       await sender.setParameters(params);
@@ -1212,6 +1216,14 @@ async function inspectPublishedEncoder(
   if (!sender) return false;
 
   const stats = await sender.getStats();
+  // A stop/restart can replace the publication while getStats is pending.
+  // Do not record, update codec state, or warn about the previous capture.
+  if (!useVoiceStore.getState().isScreenSharing) return true;
+  const currentPublication = room.localParticipant.getTrackPublications()
+    .find(p => p.source === Track.Source.ScreenShare);
+  if (!currentPublication?.track || getMediaStreamTrack(currentPublication.track) !== mediaTrack
+    || sender.track?.id !== expectedTrackId) return true;
+  logScreenShareEncoder(requestedCodec, mediaTrack, stats);
   const codecById = new Map<string, string>();
   const outbound: Array<{ codec: 'vp9' | 'h264' | 'vp8'; bytesSent: number; framesEncoded: number; encoderImpl: string | null }> = [];
   stats.forEach((report) => {

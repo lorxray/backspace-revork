@@ -45,6 +45,26 @@ function publishingRoom() {
   } as unknown as Room;
 }
 
+function chromiumPrioritySender(video: MediaStreamTrack, encodings: RTCRtpEncodingParameters[]) {
+  return {
+    track: video,
+    getParameters: vi.fn(() => ({
+      transactionId: 'sender-transaction',
+      encodings: encodings.map(encoding => ({ ...encoding })),
+    })),
+    setParameters: vi.fn(async (parameters: RTCRtpSendParameters) => {
+      // Chromium rejects changes to these sender-wide fields on later RIDs,
+      // even when the requested bitrate and framerate changes are supported.
+      if (parameters.encodings.some((encoding, index) => index > 0 && (
+        encoding.priority !== encodings[index]!.priority
+        || encoding.networkPriority !== encodings[index]!.networkPriority
+      ))) {
+        throw new DOMException('Attempted to set an unimplemented parameter of RtpParameters', 'OperationError');
+      }
+    }),
+  };
+}
+
 function runningShare() {
   const video = mediaTrack(2560, 1440);
   const encodings = ['q', 'h', 'f'].map((rid, index) => ({
@@ -255,6 +275,65 @@ describe('screen-share bitrate simulcast', () => {
     expect(share.cachedOptions.backupCodec).toMatchObject({ encoding: { maxBitrate: 6_666_667, maxFramerate: 30 } });
     expect(share.trackOptions.backupCodec).toMatchObject({ encoding: { maxBitrate: 6_666_667, maxFramerate: 30 } });
     warn.mockRestore();
+  });
+
+  it('applies simulcast caps with Chromium sender-wide priority only on the first RID', async () => {
+    const share = runningShare();
+    const video = share.publication.track.mediaStreamTrack;
+    const original: RTCRtpEncodingParameters[] = ['q', 'h', 'f'].map((rid, index) => ({
+      rid, active: index !== 1, maxBitrate: 30_000_000 / 2 ** (2 - index),
+      maxFramerate: 60, scaleResolutionDownBy: 1,
+      priority: index === 1 ? 'medium' : 'low', networkPriority: 'low',
+    }));
+    const sender = chromiumPrioritySender(video, original);
+    const backupSender = chromiumPrioritySender(video, original);
+    const cached = original.map(encoding => ({ ...encoding }));
+    const backupCached = original.map(encoding => ({ ...encoding }));
+    share.publication.track.encodings = cached as typeof share.publication.track.encodings;
+    share.publication.track.simulcastCodecs.set('vp8', {
+      sender: backupSender, encodings: backupCached,
+    } as unknown as ReturnType<typeof share.publication.track.simulcastCodecs.get> & object);
+    internals.getPublisherPC.mockReturnValue({ getSenders: () => [sender] });
+
+    expect(await applyOverdrive(share.room, Track.Source.ScreenShare, share.opts.overdrive)).toBe(true);
+    for (const appliedSender of [sender, backupSender]) {
+      const parameters = appliedSender.setParameters.mock.calls[0]![0];
+      expect(parameters.transactionId).toBe('sender-transaction');
+      expect(parameters.encodings.map(encoding => encoding.rid)).toEqual(['q', 'h', 'f']);
+      expect(parameters.encodings.map(encoding => encoding.active)).toEqual([true, false, true]);
+      expect(parameters.encodings.map(encoding => encoding.scaleResolutionDownBy)).toEqual([1, 1, 1]);
+      expect(parameters.encodings.map(encoding => encoding.priority)).toEqual(['high', 'medium', 'low']);
+      expect(parameters.encodings.map(encoding => encoding.networkPriority)).toEqual(['high', 'low', 'low']);
+    }
+    expect(sender.setParameters.mock.calls[0]![0].encodings.map(encoding => encoding.maxBitrate))
+      .toEqual([5_000_000, 10_000_000, 20_000_000]);
+    expect(backupSender.setParameters.mock.calls[0]![0].encodings.map(encoding => encoding.maxBitrate))
+      .toEqual([1_666_667, 3_333_334, 6_666_667]);
+    for (const encodings of [cached, backupCached]) {
+      expect(encodings.map(encoding => encoding.priority)).toEqual(['high', 'medium', 'low']);
+      expect(encodings.map(encoding => encoding.networkPriority)).toEqual(['high', 'low', 'low']);
+    }
+  });
+
+  it('sets camera priority on the first encoding while capping only its highest layer', async () => {
+    const share = runningShare();
+    const video = share.publication.track.mediaStreamTrack;
+    const original: RTCRtpEncodingParameters[] = ['q', 'h', 'f'].map((rid, index) => ({
+      rid, maxBitrate: 30_000_000 / 2 ** (2 - index), maxFramerate: 60,
+      priority: 'low', networkPriority: 'low',
+    }));
+    const sender = chromiumPrioritySender(video, original);
+    share.publication.source = Track.Source.Camera;
+    internals.getPublisherPC.mockReturnValue({ getSenders: () => [sender] });
+
+    expect(await applyOverdrive(share.room, Track.Source.Camera, share.opts.overdrive)).toBe(true);
+    const parameters = sender.setParameters.mock.calls[0]![0];
+    expect(parameters.encodings.map(encoding => encoding.maxBitrate)).toEqual([7_500_000, 15_000_000, 20_000_000]);
+    expect(parameters.encodings.map(encoding => encoding.maxFramerate)).toEqual([60, 60, 90]);
+    expect(parameters.encodings.map(encoding => encoding.priority)).toEqual(['high', 'low', 'low']);
+    expect(parameters.encodings.map(encoding => encoding.networkPriority)).toEqual(['high', 'low', 'low']);
+    expect(parameters.encodings.map(encoding => encoding.rid)).toEqual(['q', 'h', 'f']);
+    expect(share.backupSender.setParameters).not.toHaveBeenCalled();
   });
 
   it('updates confirmed sender caches without waking paused layers or mutating advertised SFU metadata', async () => {

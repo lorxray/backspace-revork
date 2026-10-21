@@ -70,7 +70,7 @@ import { getDesktopLanguage, isDesktopLanguage, saveStoredLanguage, translateDes
 import { createBundledWebClient, type BundledWebClient } from './bundledWebClient';
 import { resolveInstanceRedirect } from './instanceRedirect';
 import { installBundledClientSession, type BundledClientSession } from './bundledClientSession';
-import { createStreamDiagnosticLogger } from './streamDiagnostics';
+import { createStreamDiagnosticLogger, STREAM_DIAGNOSTIC_PREFIX } from './streamDiagnostics';
 
 // Override Electron's package.json-derived app name so userData lives at
 // "<appData>/Backspace" instead of leaking the monorepo's "@backspace/desktop"
@@ -444,9 +444,21 @@ function createWindow(): void {
   });
 
   try {
-    const logStreamFailure = createStreamDiagnosticLogger(app.getPath('logs'), app.getVersion());
+    let diagnosticGpuInfo: unknown = null;
+    let diagnosticGpuRequest: Promise<void> | null = null;
+    const logStreamDiagnostic = createStreamDiagnosticLogger(app.getPath('logs'), app.getVersion(), () => ({
+      videoEncode: app.getGPUFeatureStatus().video_encode,
+      gpuInfo: diagnosticGpuInfo,
+    }));
     mainWindow.webContents.on('console-message', (details) => {
-      logStreamFailure(details.message);
+      if (!details.message.startsWith(STREAM_DIAGNOSTIC_PREFIX)) return;
+      // Wait until a real share has initialized the GPU, then keep one device
+      // snapshot for this window. Renderer data never supplies GPU identities.
+      diagnosticGpuRequest ??= Promise.resolve()
+        .then(() => app.getGPUInfo('basic'))
+        .then((info) => { diagnosticGpuInfo = info; })
+        .catch(() => {});
+      void diagnosticGpuRequest.then(() => { logStreamDiagnostic(details.message); });
     });
   } catch {
     // An unavailable logs directory must not prevent the app from opening.

@@ -17,6 +17,17 @@ const payload = () => ({
   audio: { present: false, live: false, enabled: false },
   error: { name: 'OperationError', message: "Failed to execute 'setRemoteDescription' on 'RTCPeerConnection': Failed to set remote answer sdp: Failed to set video send parameters." },
 });
+const encoderPayload = () => ({
+  phase: 'encoder', codec: 'h264',
+  capture: { width: 3440, height: 1440, frameRate: 60, displaySurface: 'monitor' },
+  encoders: [{
+    codec: 'h264', profile: '64001f', packetizationMode: '1', rid: 'q',
+    implementation: 'SimulcastEncoderAdapter (OpenH264)', powerEfficient: false,
+    bytesSent: 1000, framesEncoded: 10, width: 3440, height: 1440, fps: 10,
+    qualityLimitation: 'bandwidth',
+  }],
+  capabilities: [{ profile: '64001f', packetizationMode: '1' }, { profile: '42e01f', packetizationMode: '1' }],
+});
 const message = (value: unknown) => STREAM_DIAGNOSTIC_PREFIX + JSON.stringify(value);
 const readRecords = () => fs.readFileSync(path.join(directory, STREAM_DIAGNOSTIC_FILENAME), 'utf8')
   .trim().split('\n').map((line) => JSON.parse(line));
@@ -82,5 +93,73 @@ describe('local stream failure diagnostics', () => {
     const log = createStreamDiagnosticLogger(blockedDirectory, '1.11.5');
     expect(() => log(message(payload()))).not.toThrow();
     expect(log(message(payload()))).toBe(false);
+  });
+});
+
+describe('encoder and main-process GPU diagnostics', () => {
+  it('records the actual encoder profile and bounded native GPU context', () => {
+    const runtime = {
+      videoEncode: 'enabled',
+      gpuInfo: {
+        gpuDevice: [{ active: true, vendorId: 4318, deviceId: 11269,
+          deviceString: 'NVIDIA GeForce RTX 5070 Ti', driverVersion: '32.0.16.1742' }],
+        auxAttributes: { glRenderer: 'ANGLE (NVIDIA)', privateField: 'private attribute' },
+        token: 'private token',
+      },
+    };
+    const log = createStreamDiagnosticLogger(directory, '1.11.7', () => runtime);
+    expect(log(message(encoderPayload()))).toBe(true);
+    const [record] = readRecords();
+    expect(record).toMatchObject({ ...encoderPayload(), appVersion: '1.11.7', runtime: {
+      videoEncode: 'enabled', renderer: 'ANGLE (NVIDIA)', devices: runtime.gpuInfo.gpuDevice,
+    } });
+    expect(JSON.stringify(record)).not.toContain('private');
+  });
+
+  it('discards renderer GPU claims, raw SDP and extra source data', () => {
+    const input = encoderPayload();
+    const log = createStreamDiagnosticLogger(directory, '1.11.7');
+    expect(log(message({ ...input, runtime: { devices: 'private spoofed GPU' },
+      sdp: 'private SDP', trackId: 'private track',
+      capture: { ...input.capture, sourceTitle: 'private title' },
+      encoders: input.encoders.map(entry => ({ ...entry, sdpFmtpLine: 'private fmtp', token: 'private token' })),
+      capabilities: input.capabilities.map(entry => ({ ...entry, privateField: 'private capability' })),
+    }))).toBe(true);
+    const [record] = readRecords();
+    expect(record).toMatchObject(input);
+    expect(record.runtime).toBeUndefined();
+    expect(JSON.stringify(record)).not.toMatch(/private|sdpFmtpLine|trackId|sourceTitle/);
+  });
+
+  it('rejects invalid profiles, counters, oversized lists and malformed encoder fields', () => {
+    const input = encoderPayload();
+    const first = input.encoders[0]!;
+    const log = createStreamDiagnosticLogger(directory, '1.11.7');
+    for (const value of [
+      { ...input, encoders: [...input.encoders, ...input.encoders, ...input.encoders, ...input.encoders] },
+      { ...input, capabilities: Array.from({ length: 17 }, () => input.capabilities[0]) },
+      { ...input, encoders: [{ ...first, profile: 'private' }] },
+      { ...input, encoders: [{ ...first, packetizationMode: '2' }] },
+      { ...input, encoders: [{ ...first, bytesSent: -1 }] },
+      { ...input, encoders: [{ ...first, framesEncoded: '10' }] },
+      { ...input, encoders: [{ ...first, powerEfficient: 'true' }] },
+      { ...input, encoders: [{ ...first, implementation: {} }] },
+      { ...input, encoders: [{ ...first, rid: '../private' }] },
+      { ...input, encoders: [{ ...first, fps: 1001 }] },
+      { ...input, encoders: [{ ...first, qualityLimitation: 'unknown' }] },
+      { ...input, capabilities: [{ profile: 'https://private.example' }] },
+    ]) expect(log(message(value))).toBe(false);
+    expect(fs.existsSync(path.join(directory, STREAM_DIAGNOSTIC_FILENAME))).toBe(false);
+  });
+
+  it('redacts encoder strings and tolerates unavailable native GPU information', () => {
+    const input = encoderPayload();
+    input.encoders[0]!.implementation = 'OpenH264 https://private.example/token Bearer secret';
+    const log = createStreamDiagnosticLogger(directory, '1.11.7', () => { throw new Error('GPU unavailable'); });
+    expect(log(message(input))).toBe(true);
+    const [record] = readRecords();
+    expect(record.encoders[0].implementation).toContain('OpenH264');
+    expect(record.encoders[0].implementation).not.toMatch(/private|secret/);
+    expect(record.runtime).toBeUndefined();
   });
 });

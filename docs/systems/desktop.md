@@ -1568,7 +1568,7 @@ Earlier builds wrote to `<appData>/@backspace/desktop/`. On first launch after t
 | `games-cache.json` | `VersionedDictionary` | Cached remote game dictionary |
 | `games-cache-etag.txt` | ETag string | For conditional HTTP requests |
 
-### Screen-share failure diagnostics
+### Screen-share diagnostics
 
 The renderer emits a structured `[ScreenShare:Diagnostic]` console message for
 capture, video-publication and audio-publication failures. The desktop main
@@ -1576,6 +1576,15 @@ process validates those messages and writes `screen-share.log` under
 `app.getPath('logs')` (normally `%APPDATA%\Backspace\logs\` on Windows).
 Packaged DevTools remain disabled; opening a console is not needed to collect
 the original exception, requested quality and actual capture dimensions.
+
+The existing bounded encoder inspection also records the selected codec's
+H.264 profile and packetization mode, advertised H.264 profiles, active encoder
+implementation, power-efficiency flag, dimensions and frame counters. Stale
+stats from a stopped or replaced capture are discarded. For these snapshots
+the main process adds its own video-encode feature status and GPU device/driver
+summary, fetched when the first diagnostic arrives. Renderer-supplied GPU
+claims are ignored. This distinguishes profile negotiation from an encoder
+fallback without requiring DevTools or a server update.
 
 Only explicitly allowed diagnostic fields are saved. Screen pixels, audio
 content, source titles, URLs, credentials and SDP are not stored. The file is

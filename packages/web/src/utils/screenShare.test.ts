@@ -468,6 +468,66 @@ describe('screen-share media options', () => {
     );
   });
 
+  it('records encoder snapshots only during the existing bounded H264 detection attempts', async () => {
+    useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
+    const video = makeVideoTrack();
+    const room = fakeRoom();
+    const sender = attachPublishedSender(room, video, [
+      ['codec-h264', { id: 'codec-h264', type: 'codec', mimeType: 'video/H264', sdpFmtpLine: 'profile-level-id=42e033;packetization-mode=1' }],
+      ['outbound-h264', { id: 'outbound-h264', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264', bytesSent: 100 }],
+    ]);
+    const output = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    await publishScreenShare(room, makeStream(video));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(output).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(output).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(output).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(output).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(output).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(sender.getStats).toHaveBeenCalledTimes(4);
+    expect(output).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(String(output.mock.calls[0]![0]).slice('[ScreenShare:Diagnostic] '.length))).toMatchObject({
+      phase: 'encoder', codec: 'h264', capture: { width: 2560, height: 1440 },
+      encoders: [{ codec: 'h264', profile: '42e033', packetizationMode: '1', implementation: null }],
+    });
+  });
+
+  it.each(['replaced', 'stopped'])('discards pending encoder stats after the capture is %s', async (change) => {
+    useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
+    const video = makeVideoTrack();
+    const room = fakeRoom();
+    const sender = attachPublishedSender(room, video, []);
+    let resolveStats!: (stats: Map<string, Record<string, unknown>>) => void;
+    sender.getStats.mockReturnValueOnce(new Promise<Map<string, Record<string, unknown>>>((resolve) => { resolveStats = resolve; }));
+    const output = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const addToast = vi.spyOn(useUIStore.getState(), 'addToast');
+
+    await publishScreenShare(room, makeStream(video));
+    if (change === 'replaced') {
+      room.localParticipant.getTrackPublications.mockReturnValue([{
+        source: Track.Source.ScreenShare, track: { mediaStreamTrack: makeVideoTrack('replacement') },
+      }]);
+    } else {
+      useVoiceStore.setState({ isScreenSharing: false });
+    }
+    resolveStats(new Map([
+      ['outbound-h264', { id: 'outbound-h264', type: 'outbound-rtp', kind: 'video', mimeType: 'video/H264',
+        bytesSent: 100, framesEncoded: 1, encoderImplementation: 'OpenH264' }],
+    ]));
+    await vi.advanceTimersByTimeAsync(8000);
+
+    expect(output).not.toHaveBeenCalled();
+    expect(addToast).not.toHaveBeenCalled();
+    expect(getPublishedScreenShareCodec()).toBeNull();
+    expect(sender.getStats).toHaveBeenCalledOnce();
+  });
+
   it('waits for encoded H264 media before reporting software encoding', async () => {
     useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
     const video = makeVideoTrack();

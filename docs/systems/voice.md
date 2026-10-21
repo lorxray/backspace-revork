@@ -411,7 +411,11 @@ ScreenShareConfig {
   negotiated result. Stats inspection retries briefly while the sender or
   encoder implementation is still unavailable.
 - Sender parameters set the chosen bitrate ceiling and framerate with high
-  priority. Application starts immediately, retries at bounded intervals until
+  priority. Chromium treats `priority` and `networkPriority` as sender-wide:
+  only the first encoding is changed, while later RIDs retain their current
+  values. Changing priority on all simulcast encodings rejects the whole
+  parameter write, including otherwise valid bitrate and FPS caps.
+  Application starts immediately, retries at bounded intervals until
   a real `RTCRtpSender` encoding is available, and always re-asserts the values
   at 5 seconds after Chromium's bandwidth estimate converges. The same bounded
   scheduler runs after LiveKit reconnects and screen-track restarts, where the
