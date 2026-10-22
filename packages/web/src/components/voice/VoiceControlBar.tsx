@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSpaceStore, getChannelOrigin, getMyUserIdForOrigin } from '../../stores/spaceStore';
 import { ScreenShareSettingsPopover } from './ScreenShareSettingsPopover';
 import { QuickStartStreamButton } from './QuickStartStreamButton';
+import { CinemaModeButton } from './CinemaModeButton';
 import { useScreenShareSetupStore } from '../../stores/screenShareSetupStore';
 import { hasPermissionBit, PermissionBits } from '../../utils/permissions';
 import { handleMuteAction, handleDeafenAction, handleCameraAction, handleScreenShareAction, handleDisconnectAction } from '../../utils/voiceActions';
@@ -35,6 +36,12 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
   const voiceChatOpen = useUIStore((s) => s.voiceChatOpen);
   const toggleVoiceChat = useUIStore((s) => s.toggleVoiceChat);
   const voiceFullscreen = useUIStore((s) => s.voiceFullscreen);
+  const participants = useVoiceStore(s => s.participants);
+  const watchingStreams = useVoiceStore(s => s.watchingStreams);
+  const focusedParticipantId = useVoiceStore(s => s.focusedParticipantId);
+  const cinemaCandidates = participants.filter(p => !p.isLocal && p.isScreenSharing && watchingStreams.has(p.userId));
+  const cinemaTarget = cinemaCandidates.find(p => `${p.identity}:stream` === focusedParticipantId)
+    ?? (cinemaCandidates.length === 1 ? cinemaCandidates[0] : undefined);
   const toggleVoiceFullscreen = useUIStore((s) => s.toggleVoiceFullscreen);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
   const myUser = useAuthStore((s) => s.user);
@@ -223,6 +230,7 @@ export function VoiceControlBar({ revealed = false }: { revealed?: boolean }) {
         </button>
 
         {/* Fullscreen Toggle */}
+        {cinemaCandidates.length > 0 && <CinemaModeButton identity={cinemaTarget?.identity} className={`${btnDefault} disabled:opacity-40`} />}
         <button
           onClick={handleFullscreen}
           className={voiceFullscreen

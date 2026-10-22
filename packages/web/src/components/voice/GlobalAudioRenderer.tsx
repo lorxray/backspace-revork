@@ -1,5 +1,6 @@
 import React from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useCinemaStore } from '../../stores/cinemaStore';
 import { useSpaceStore, getChannelOrigin, getMyUserIdForOrigin } from '../../stores/spaceStore';
 import { useAudioTrackPlayer } from '../../hooks/useAudioTrackPlayer';
 import type { ParticipantInfo } from '../../hooks/useLiveKit';
@@ -66,6 +67,7 @@ function AudioTrackElement({
  * as Chrome keep-alives for WebRTC tracks but produce no sound.
  */
 export function GlobalAudioRenderer() {
+  const cinemaVoiceVolume = useCinemaStore(s => s.target ? s.voiceVolume : 100);
   const participants = useVoiceStore((s) => s.participants);
   const isDeafenedIntent = useVoiceStore((s) => s.isDeafened);
   const spaceDeafenedUserIds = useVoiceStore((s) => s.spaceDeafenedUserIds);
@@ -89,7 +91,7 @@ export function GlobalAudioRenderer() {
   const isVoiceDeafened = isDeafenedIntent || isSpaceDeafened;
 
   // Determine if someone is currently speaking (for stream attenuation)
-  const someoneIsSpeaking = !isVoiceDeafened && participants.some((p) => !p.isLocal
+  const someoneIsSpeaking = cinemaVoiceVolume > 0 && !isVoiceDeafened && participants.some((p) => !p.isLocal
     && !(participantMutes.get(p.userId) ?? false)
     && (participantVolumes.get(p.userId) ?? 100) > 0
     && speakingParticipantIds.has(p.identity));
@@ -111,7 +113,7 @@ export function GlobalAudioRenderer() {
             {p.audioTrack && (
               <AudioTrackElement
                 track={p.audioTrack}
-                globalVolume={outputVolume}
+                globalVolume={outputVolume * cinemaVoiceVolume / 100}
                 perSourceVolume={micVolume}
                 isDeafened={isVoiceDeafened}
                 isMuted={isMicMuted}

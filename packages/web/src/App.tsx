@@ -7,6 +7,7 @@ import { JoinPage } from './components/JoinPage';
 import { SwAutoUpdate } from './components/ui/SwUpdatePrompt';
 import { TelemetryAsk } from './components/telemetry/TelemetryAsk';
 import { ScreenShareSetup } from './components/voice/ScreenShareSetup';
+import { CinemaMode } from './components/voice/CinemaMode';
 import { useAuthStore } from './stores/authStore';
 import { isElectron } from './platform/platform';
 
@@ -59,6 +60,7 @@ export function App() {
         <SwAutoUpdate />
         <TelemetryAsk />
         <ScreenShareSetup />
+        <CinemaMode />
         <Routes>
           <Route
             path="/login"

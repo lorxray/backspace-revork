@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useSpaceStore } from '../../stores/spaceStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useCinemaStore } from '../../stores/cinemaStore';
 import { MessageList } from '../chat/MessageList';
 import { MessageInput } from '../chat/MessageInput';
 import { VoiceGrid } from '../voice/VoiceGrid';
@@ -65,6 +66,7 @@ export function MainContent() {
   const currentSpaceId = useSpaceStore((s) => s.currentSpaceId);
   const voiceChatOpen = useUIStore((s) => s.voiceChatOpen);
   const voiceFullscreen = useUIStore((s) => s.voiceFullscreen);
+  const cinemaActive = useCinemaStore(s => s.target !== null);
   const setVoiceFullscreen = useUIStore((s) => s.setVoiceFullscreen);
   const participants = useVoiceStore((s) => s.participants);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
@@ -134,6 +136,7 @@ export function MainContent() {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
+      if (useCinemaStore.getState().target) return;
       setVoiceFullscreen(!!getFullscreenElement());
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -145,6 +148,7 @@ export function MainContent() {
   }, [setVoiceFullscreen, getFullscreenElement]);
 
   useEffect(() => {
+    if (cinemaActive) return;
     const el = voiceContainerRef.current as FullscreenCapableElement | null;
     const d = document as FullscreenCapableDocument;
     const inFullscreen = !!getFullscreenElement();
@@ -185,7 +189,7 @@ export function MainContent() {
     } else if (!voiceFullscreen && inFullscreen) {
       void exit();
     }
-  }, [voiceFullscreen, getFullscreenElement]);
+  }, [voiceFullscreen, cinemaActive, getFullscreenElement]);
 
   // 2. LOGIC AND EARLY RETURNS
   const channel = channels.find(c => c.id === currentChannelId);

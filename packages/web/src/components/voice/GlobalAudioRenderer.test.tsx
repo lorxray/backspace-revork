@@ -2,6 +2,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlobalAudioRenderer } from './GlobalAudioRenderer';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useCinemaStore } from '../../stores/cinemaStore';
 import type { ParticipantInfo } from '../../hooks/useLiveKit';
 
 const audio = vi.hoisted(() => ({
@@ -41,6 +42,7 @@ function track(id: string): MediaStreamTrack {
 }
 
 beforeEach(() => {
+  useCinemaStore.setState({ target: null, voiceVolume: 100 });
   audio.graphs.clear();
   vi.stubGlobal('MediaStream', class {
     constructor(private readonly tracks: MediaStreamTrack[]) {}
@@ -66,6 +68,22 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const gain = (id: string) => audio.graphs.get(id)!.target;
 
 describe('independent voice and stream audio output', () => {
+  it('changes only voices in cinema mode, avoids ducking for zero voice volume, and restores them on exit', () => {
+    useVoiceStore.setState({ streamAttenuationEnabled: true, streamAttenuationStrength: 50, speakingParticipantIds: new Set(['sharer:Alice']) });
+    render(<GlobalAudioRenderer />);
+    const microphoneGraph = audio.graphs.get('mic');
+    const streamGraph = audio.graphs.get('stream');
+    act(() => { useCinemaStore.getState().open({ identity: 'sharer:Alice', userId: 'sharer', channelId: 'channel', dmCallId: null }); useCinemaStore.getState().setVoiceVolume(50); });
+    expect(gain('mic')).toBeCloseTo(0.2);
+    expect(gain('stream')).toBeCloseTo(0.6);
+    act(() => useCinemaStore.getState().setVoiceVolume(0));
+    expect(gain('mic')).toBe(0);
+    expect(gain('stream')).toBeCloseTo(1.2);
+    act(() => useCinemaStore.getState().close());
+    expect(gain('mic')).toBeCloseTo(0.4);
+    expect(audio.graphs.get('mic')).toBe(microphoneGraph);
+    expect(audio.graphs.get('stream')).toBe(streamGraph);
+  });
   it('keeps a watched stream audible when the headphones button mutes all voices, and restores voice volume', () => {
     const { container } = render(<GlobalAudioRenderer />);
     expect(gain('mic')).toBeCloseTo(0.4);

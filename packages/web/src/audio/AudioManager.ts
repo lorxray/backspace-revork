@@ -220,6 +220,11 @@ export class AudioManager {
     source.connect(gainNode);
     gainNode.connect(this.masterBoost!);
 
+    source.addEventListener('ended', () => {
+      source.disconnect();
+      gainNode.disconnect();
+    }, { once: true });
+
     source.start(now);
     return source;
   }

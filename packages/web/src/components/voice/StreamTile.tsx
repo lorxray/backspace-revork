@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useFormatters } from '../../i18n/formatters';
 import { Avatar } from '../ui/Avatar';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useCinemaStore } from '../../stores/cinemaStore';
+import { enterCinemaMode } from '../../utils/cinemaMode';
+import { CinemaModeButton } from './CinemaModeButton';
 import { useContextMenuStore, type ContextMenuItem } from '../../stores/contextMenuStore';
 import { getActiveRoom, setStreamSubscription } from '../../hooks/useLiveKit';
 import { stopScreenShare, changeScreenShare, effectiveScreenShareConfig } from '../../utils/screenShare';
@@ -217,6 +220,7 @@ export function StreamTile({ tile, large, stats }: StreamTileProps) {
   const { participant } = tile;
   const isLocal = participant.isLocal;
   const userId = participant.userId;
+  const inCinema = useCinemaStore(s => s.target?.identity === participant.identity && s.target.userId === userId);
   const avatarUserId = participant.homeUserId ?? userId;
   const { displayName, avatar, user } = useVoiceParticipantMeta(participant);
 
@@ -259,13 +263,13 @@ export function StreamTile({ tile, large, stats }: StreamTileProps) {
   useEffect(() => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
-    if (liveLkScreenTrack) {
+    if (liveLkScreenTrack && !inCinema) {
       liveLkScreenTrack.attach(videoEl);
       return () => { liveLkScreenTrack.detach(videoEl); };
     } else {
       videoEl.srcObject = null;
     }
-  }, [liveLkScreenTrack]);
+  }, [liveLkScreenTrack, inCinema]);
 
   // Quality badge (poll every 3s)
   useEffect(() => {
@@ -351,6 +355,7 @@ export function StreamTile({ tile, large, stats }: StreamTileProps) {
         const identity = participant.identity;
 
         if (currentIsWatching) {
+          items.push({ key: 'cinema-mode', type: 'action', label: t('voice:cinema.enter'), onClick: () => enterCinemaMode(identity) });
           items.push({
             key: 'stop-watching',
             type: 'action',
@@ -512,7 +517,7 @@ export function StreamTile({ tile, large, stats }: StreamTileProps) {
               <span className="text-[10px] text-white/40 font-medium">{t('voice:badges.you')}</span>
             )}
           </div>
-          {!isLocal && <ViewerQuality identity={participant.identity} />}
+          {!isLocal && <><ViewerQuality identity={participant.identity} /><CinemaModeButton identity={participant.identity} /></>}
         </div>
       </div>}
     </div>

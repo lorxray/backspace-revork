@@ -1,4 +1,15 @@
 {
+  "cinema": {
+    "title": "Cinema mode",
+    "enter": "Cinema mode",
+    "exit": "Exit cinema mode (Esc)",
+    "chooseStream": "Select a watched stream to open cinema mode",
+    "waiting": "Waiting for the stream…",
+    "filmVolume": "Film volume",
+    "voiceVolume": "Voice volume",
+    "muteFilm": "Mute film",
+    "unmuteFilm": "Unmute film"
+  },
   "chatPanel": {
     "title": "Chat",
     "close": "Close Chat"

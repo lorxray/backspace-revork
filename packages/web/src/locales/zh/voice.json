@@ -1,4 +1,15 @@
 {
+  "cinema": {
+    "title": "影院模式",
+    "enter": "影院模式",
+    "exit": "退出影院模式（Esc）",
+    "chooseStream": "选择正在观看的直播以进入影院模式",
+    "waiting": "正在等待直播画面…",
+    "filmVolume": "影片音量",
+    "voiceVolume": "语音音量",
+    "muteFilm": "静音影片",
+    "unmuteFilm": "取消影片静音"
+  },
   "chatPanel": {
     "title": "聊天",
     "close": "关闭聊天"

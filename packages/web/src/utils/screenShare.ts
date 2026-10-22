@@ -17,6 +17,8 @@ import { getLastScreenShareSource, rememberScreenShareSource } from './lastScree
 import type { LastScreenShareSource } from './lastScreenShareSource';
 import { logScreenShareEncoder, logScreenShareFailure } from './screenShareDiagnostics';
 import { serializeScreenShareUpdate } from './screenShareUpdateQueue';
+import { AudioManager } from '../audio/AudioManager';
+import { getSfxVolume } from './sfx';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
   STANDARD_RESOLUTIONS, STANDARD_FRAMERATES, WIDTH_MAP,
@@ -1471,6 +1473,9 @@ export function replaceScreenShareSource(
       oldVideo.stop();
       for (const entry of backups) entry.old.stop();
       if (oldAudio !== nextAudio) oldAudio?.stop();
+      // Local confirmation only: the share stayed live, so remote participants
+      // receive no stop/start transition and no extra sound.
+      try { void AudioManager.getInstance().playSound('stream_started', { volume: getSfxVolume() }).catch(() => {}); } catch { /* Audio feedback must not roll back a committed source. */ }
       // No await after committing: the picker still owns the staged stream
       // until this promise returns, so Cancel must not stop a committed source.
       if (isCurrent()) {

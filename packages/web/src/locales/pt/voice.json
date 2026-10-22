@@ -1,4 +1,15 @@
 {
+  "cinema": {
+    "title": "Modo cinema",
+    "enter": "Modo cinema",
+    "exit": "Sair do modo cinema (Esc)",
+    "chooseStream": "Selecione uma transmissão assistida para o modo cinema",
+    "waiting": "Aguardando a imagem da transmissão…",
+    "filmVolume": "Volume do filme",
+    "voiceVolume": "Vozes",
+    "muteFilm": "Silenciar filme",
+    "unmuteFilm": "Ativar som do filme"
+  },
   "chatPanel": {
     "title": "Chat",
     "close": "Fechar chat"

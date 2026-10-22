@@ -6,7 +6,8 @@ import { changeScreenShare, publishScreenShare, replaceScreenShareSource, stopSc
 import { serializeScreenShareUpdate } from './screenShareUpdateQueue';
 import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
 
-vi.mock('../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({}) } }));
+const playSound = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({ playSound }) } }));
 vi.mock('./hwOverdrive', () => ({ activate: vi.fn(), deactivate: vi.fn() }));
 vi.mock('./voice', () => ({ broadcastVoiceStatus: vi.fn() }));
 vi.mock('./livekitInternals', () => ({ getPublisherPC: () => null, getMediaStreamTrack: (track: { mediaStreamTrack: MediaStreamTrack }) => track.mediaStreamTrack }));
@@ -60,6 +61,7 @@ function makeRoom() {
 
 let room: ReturnType<typeof makeRoom>;
 beforeEach(async () => {
+  playSound.mockClear();
   vi.useFakeTimers(); tracks.length = 0;
   vi.stubGlobal('MediaStream', class {
     constructor(private readonly tracks: MediaStreamTrack[]) {}
@@ -112,6 +114,7 @@ describe('replace the capture without restarting the share', () => {
     expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
     expect(room.localParticipant.unpublishTrack).not.toHaveBeenCalled();
     expect(room.localParticipant.publishData).not.toHaveBeenCalled();
+    expect(playSound).toHaveBeenCalledExactlyOnceWith('stream_started', { volume: 0.8 });
   });
 
   it('bounds live tracks and scheduled retries across 40 source changes', async () => {
@@ -128,6 +131,13 @@ describe('replace the capture without restarting the share', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('uses the streamer sound-effect volume without sending a cue to viewers', async () => {
+    useVoiceStore.setState({ soundEffectVolume: 125 });
+    expect(await replaceScreenShareSource(room as never, capture('next'))).toBe(true);
+    expect(playSound).toHaveBeenCalledExactlyOnceWith('stream_started', { volume: 1 });
+    expect(room.localParticipant.publishData).not.toHaveBeenCalled();
+  });
+
   it.each(['primary', 'backup', 'audio'])('restores the old source after a %s replacement fails', async failure => {
     const video = room.publications.get(Track.Source.ScreenShare)!.track;
     const audio = room.publications.get(Track.Source.ScreenShareAudio)!.track;
@@ -141,6 +151,7 @@ describe('replace the capture without restarting the share', () => {
     expect(next.getTracks().every(track => track.readyState === 'ended')).toBe(true);
     expect(useVoiceStore.getState().isScreenSharing).toBe(true);
     expect(tracks.filter(track => track.readyState === 'live')).toHaveLength(4);
+    expect(playSound).not.toHaveBeenCalled();
   });
 
   it('keeps the old source when Cancel arrives during replacement', async () => {

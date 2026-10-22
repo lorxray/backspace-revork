@@ -1,4 +1,15 @@
 {
+  "cinema": {
+    "title": "Kinomodus",
+    "enter": "Kinomodus",
+    "exit": "Kinomodus verlassen (Esc)",
+    "chooseStream": "Wähle einen angesehenen Stream für den Kinomodus",
+    "waiting": "Warten auf das Streambild…",
+    "filmVolume": "Filmton",
+    "voiceVolume": "Stimmen",
+    "muteFilm": "Film stummschalten",
+    "unmuteFilm": "Filmton einschalten"
+  },
   "chatPanel": {
     "title": "Chat",
     "close": "Chat schließen"

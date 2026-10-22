@@ -12,6 +12,7 @@ interface StreamViewerQualityControlsProps {
   quality: StreamViewerQualityChoice;
   options: readonly StreamViewerQualityOption[];
   onQualityChange: (quality: StreamViewerQualityChoice) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const QUALITY_KEYS = {
@@ -22,10 +23,11 @@ const QUALITY_KEYS = {
 } as const;
 
 /** A viewer's local subscription preference; publishing controls stay separate. */
-export function StreamViewerQualityControls({ quality, options, onQualityChange }: StreamViewerQualityControlsProps) {
+export function StreamViewerQualityControls({ quality, options, onQualityChange, onOpenChange }: StreamViewerQualityControlsProps) {
   const { t } = useTranslation(['voice', 'common']);
   const f = useFormatters();
   const [open, setOpen] = useState(false);
+  useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const portalContainer = usePortalContainer();

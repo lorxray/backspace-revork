@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { VoiceControlBar } from './VoiceControlBar';
 import { useUIStore } from '../../stores/uiStore';
 import { useVoiceStore } from '../../stores/voiceStore';
+import type { ParticipantInfo } from '../../hooks/useLiveKit';
+const enterCinema = vi.hoisted(() => vi.fn());
+vi.mock('../../utils/cinemaMode', () => ({ enterCinemaMode: enterCinema }));
 
 vi.mock('../../audio/AudioManager', () => ({
   AudioManager: { getInstance: () => ({}) },
@@ -21,6 +24,7 @@ vi.mock('./ScreenShareSettingsPopover', () => ({
 }));
 
 beforeEach(() => {
+  enterCinema.mockClear();
   useUIStore.setState({ voiceFullscreen: true, voiceChatOpen: false });
   useVoiceStore.setState({
     currentVoiceChannelId: null,
@@ -31,6 +35,28 @@ beforeEach(() => {
     isScreenSharing: false,
     spaceMutedUserIds: new Set(),
     spaceDeafenedUserIds: new Set(),
+    participants: [], watchingStreams: new Set(), focusedParticipantId: null,
+  });
+});
+
+describe('cinema button beside fullscreen', () => {
+  const sharer = (identity: string) => ({ identity, userId: identity, isLocal: false, isScreenSharing: true } as ParticipantInfo);
+  it('opens the only watched stream directly', () => {
+    useVoiceStore.setState({ participants: [sharer('ada')], watchingStreams: new Set(['ada']) });
+    render(<VoiceControlBar revealed />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cinema mode' }));
+    expect(enterCinema).toHaveBeenCalledWith('ada');
+  });
+  it('requires a focused stream when multiple streams are watched', () => {
+    useVoiceStore.setState({ participants: [sharer('ada'), sharer('bob')], watchingStreams: new Set(['ada', 'bob']) });
+    render(<VoiceControlBar revealed />);
+    expect(screen.getByRole('button', { name: 'Cinema mode' })).toBeDisabled();
+  });
+  it('uses the focused watched stream', () => {
+    useVoiceStore.setState({ participants: [sharer('ada'), sharer('bob')], watchingStreams: new Set(['ada', 'bob']), focusedParticipantId: 'bob:stream' });
+    render(<VoiceControlBar revealed />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cinema mode' }));
+    expect(enterCinema).toHaveBeenCalledWith('bob');
   });
 });
 

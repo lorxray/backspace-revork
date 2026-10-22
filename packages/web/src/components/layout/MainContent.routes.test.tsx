@@ -16,12 +16,13 @@ vi.mock('../chat/ExplorePage', () => ({ ExplorePage: () => <div data-testid="pag
 vi.mock('../chat/FriendsPage', () => ({ FriendsPage: () => <div data-testid="page">friends</div> }));
 vi.mock('../projectHub/ProjectHubPage', () => ({ ProjectHubPage: () => <div data-testid="page">backspace</div> }));
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useChatStore } from '../../stores/chatStore';
 import { useSpaceStore } from '../../stores/spaceStore';
 import { useUIStore } from '../../stores/uiStore';
 import { MainContent } from './MainContent';
+import { useCinemaStore } from '../../stores/cinemaStore';
 
 function renderAt(pathname: string) {
   return render(
@@ -38,6 +39,25 @@ beforeEach(() => {
 });
 
 describe('MainContent home pages', () => {
+  it('leaves cinema fullscreen ownership alone', () => {
+    const movie = document.createElement('div');
+    const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+    const originalExit = document.exitFullscreen;
+    useUIStore.setState({ voiceFullscreen: false });
+    useCinemaStore.getState().open({ identity: 'movie', userId: 'movie', channelId: null, dmCallId: null });
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: movie });
+    document.exitFullscreen = exitFullscreen;
+    try {
+      renderAt('/backspace');
+      act(() => document.dispatchEvent(new Event('fullscreenchange')));
+      expect(useUIStore.getState().voiceFullscreen).toBe(false);
+      expect(exitFullscreen).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+      document.exitFullscreen = originalExit;
+      act(() => useCinemaStore.getState().close());
+    }
+  });
   it('renders the Backspace page on /backspace', () => {
     renderAt('/backspace');
     expect(screen.getByTestId('page')).toHaveTextContent('backspace');
