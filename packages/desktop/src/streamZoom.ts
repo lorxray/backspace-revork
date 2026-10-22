@@ -213,8 +213,20 @@ export function installStreamZoom(): () => void {
       showControls();
     }
 
+    function isControlEvent(event: Event): boolean {
+      // Native capture runs before React's delegated handlers. Let controls
+      // receive their events, including clicks on nested SVGs and shadow DOM.
+      for (const target of event.composedPath()) {
+        if (target === tile) break;
+        if (target instanceof Element && target.matches(
+          'button, a[href], input, select, textarea, label, summary, [role="button"], [role="slider"], [role^="menuitem"], [contenteditable]:not([contenteditable="false"]), [data-backspace-stream-zoom]',
+        )) return true;
+      }
+      return false;
+    }
+
     function onWheel(event: WheelEvent): void {
-      if (host.contains(event.target as Node) || event.ctrlKey || event.metaKey || event.deltaY === 0) return;
+      if (isControlEvent(event) || event.ctrlKey || event.metaKey || event.deltaY === 0) return;
       event.preventDefault();
       event.stopPropagation();
       const rect = tile.getBoundingClientRect();
@@ -226,7 +238,7 @@ export function installStreamZoom(): () => void {
     }
 
     function onPointerDown(event: PointerEvent): void {
-      if (host.contains(event.target as Node) || view.scale <= 1 || event.button !== 0 || !event.isPrimary) return;
+      if (isControlEvent(event) || view.scale <= 1 || event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();
       event.stopPropagation();
       tile.setPointerCapture(event.pointerId);
@@ -262,7 +274,7 @@ export function installStreamZoom(): () => void {
     function onClick(event: MouseEvent): void {
       // Capture before React's delegated click handler can return to the grid.
       // Toolbar events reach their own buttons before being stopped at the host.
-      if (view.scale > 1 && !host.contains(event.target as Node)) event.stopPropagation();
+      if (view.scale > 1 && !isControlEvent(event)) event.stopPropagation();
     }
 
     function checkSource(): boolean {

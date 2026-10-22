@@ -917,6 +917,10 @@ grid thumbnails, and a server-provided zoom viewport are excluded. Controls
 live in a Shadow DOM; the adapter never reparents the video or assigns its
 `srcObject`. Source and video-track changes reset zoom, while viewport and
 video-resolution changes only reclamp pan. Coordinates honor root CSS zoom.
+The native capture handlers skip interactive controls along the event's
+composed DOM path. Viewer quality buttons, their nested icons, and input
+controls keep receiving React events at every zoom level; only gestures on
+the video surface start panning or suppress the return-to-grid click.
 
 Build Windows x64 portable from the repository root with
 `corepack pnpm --filter @backspace/desktop build:portable`. The output is

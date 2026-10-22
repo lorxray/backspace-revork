@@ -66,11 +66,12 @@ function wheel(target: HTMLElement, deltaY: number, x = 500, y = 350): WheelEven
   return event;
 }
 
-function pointer(target: EventTarget, type: string, x: number, y: number, button = 0): void {
+function pointer(target: EventTarget, type: string, x: number, y: number, button = 0): MouseEvent {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   Object.defineProperty(event, 'isPrimary', { value: true });
   target.dispatchEvent(event);
+  return event;
 }
 
 function translation(video: HTMLVideoElement): { x: number; y: number } {
@@ -363,6 +364,28 @@ describe('bundled desktop stream zoom', () => {
     control(tile, 'Reset zoom').click();
     video.click();
     expect(returnToGrid).toHaveBeenCalledOnce();
+  });
+
+  it('leaves overlay sliders and custom controls interactive without starting a pan or wheel zoom', () => {
+    const { wrapper, tile, video } = stream();
+    const delegatedClick = vi.fn();
+    wrapper.addEventListener('click', delegatedClick);
+    const overlay = document.createElement('div');
+    overlay.innerHTML = '<input type="range" aria-label="Stream volume"><div role="button"><span>Quality</span></div>';
+    tile.append(overlay);
+    install();
+    control(tile, 'Zoom in').click();
+    const transform = video.style.transform;
+    for (const target of [overlay.querySelector('input')!, overlay.querySelector('span')!]) {
+      expect(pointer(target, 'pointerdown', 500, 350).defaultPrevented).toBe(false);
+      pointer(target, 'pointermove', 600, 390);
+      pointer(target, 'pointerup', 600, 390);
+      expect(wheel(target, -100).defaultPrevented).toBe(false);
+      target.click();
+    }
+    expect(tile.setPointerCapture).not.toHaveBeenCalled();
+    expect(video.style.transform).toBe(transform);
+    expect(delegatedClick).toHaveBeenCalledTimes(2);
   });
 
   it('uses interface scaling when translating screen pointer coordinates', () => {
