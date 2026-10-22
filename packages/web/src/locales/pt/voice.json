@@ -104,7 +104,11 @@
     "kind": {
       "monitor": "Tela",
       "window": "Janela"
-    }
+    },
+    "replaceTitle": "Alterar fonte de captura",
+    "replaceSubtitle": "A transmissão continua enquanto você escolhe. Aplique a nova fonte sem reiniciá-la.",
+    "replace": "Aplicar fonte",
+    "replaceFailed": "Não foi possível alterar a fonte de captura. A transmissão anterior foi mantida quando possível."
   },
   "streamSettings": {
     "title": "Configurações da transmissão",

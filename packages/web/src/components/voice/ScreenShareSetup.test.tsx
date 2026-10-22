@@ -4,17 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const deps = vi.hoisted(() => ({
   stageScreenCapture: vi.fn(),
   selectScreenSource: vi.fn(),
+  replaceScreenShareSource: vi.fn(),
+  publishScreenShare: vi.fn(),
+  stopStagedCapture: vi.fn(),
+  room: null as { state: string } | null,
   sourcesCallback: null as ((sources: ElectronScreenSource[]) => void) | null,
 }));
 
 vi.mock('../../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({}) } }));
-vi.mock('../../hooks/useLiveKit', () => ({ getActiveRoom: vi.fn(() => null) }));
+vi.mock('../../hooks/useLiveKit', () => ({ getActiveRoom: () => deps.room }));
 vi.mock('../../utils/voice', () => ({ broadcastVoiceStatus: vi.fn() }));
 vi.mock('../../utils/screenShare', () => ({
   stageScreenCapture: deps.stageScreenCapture,
   applyStagedCaptureConfig: vi.fn(),
-  stopStagedCapture: vi.fn(),
-  publishScreenShare: vi.fn(),
+  stopStagedCapture: deps.stopStagedCapture,
+  publishScreenShare: deps.publishScreenShare,
+  replaceScreenShareSource: deps.replaceScreenShareSource,
   isScreenCaptureSupported: () => true,
   isCaptureCancellation: (err: unknown) => err instanceof DOMException && err.name === 'NotAllowedError',
   canAddScreenShareAudioLater: () => false,
@@ -33,6 +38,7 @@ import i18n from '../../i18n';
 beforeEach(() => {
   vi.clearAllMocks();
   deps.sourcesCallback = null;
+  deps.room = null;
   window.backspace = {
     getScreenSharePickerMode: vi.fn(async () => 'app'),
     onScreenShareSources: (callback: (sources: ElectronScreenSource[]) => void) => {
@@ -40,8 +46,57 @@ beforeEach(() => {
     },
     selectScreenSource: deps.selectScreenSource,
   } as unknown as BackspaceElectronAPI;
-  useScreenShareSetupStore.setState({ isOpen: true, isStarting: false });
+  useScreenShareSetupStore.setState({ isOpen: true, isStarting: false, mode: 'start' });
   useVoiceStore.setState({ isScreenSharing: false });
+});
+
+describe('source chooser for a running stream', () => {
+  beforeEach(() => {
+    deps.room = { state: 'connected' };
+    useVoiceStore.setState({ isScreenSharing: true, isLiveKitConnected: true });
+    useScreenShareSetupStore.setState({ mode: 'replace' });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function stagedChoice() {
+    const track = Object.assign(new EventTarget(), { readyState: 'live', kind: 'video' });
+    const stream = { getVideoTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream;
+    deps.stageScreenCapture.mockResolvedValue(stream);
+    render(<ScreenShareSetup />);
+    const choose = await screen.findByRole('button', { name: i18n.t('voice:screenPicker.choose') });
+    await waitFor(() => expect(choose).toBeEnabled());
+    fireEvent.click(choose);
+    await waitFor(() => expect(screen.getByRole('button', { name: i18n.t('voice:screenPicker.replace'), exact: true })).toBeEnabled());
+    return stream;
+  }
+
+  it('keeps the running stream alive while picking and on Cancel', async () => {
+    const stream = await stagedChoice();
+    expect(screen.getByText(i18n.t('voice:screenPicker.replaceTitle'))).toBeInTheDocument();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('common:actions.cancel'), exact: true }));
+    expect(deps.stopStagedCapture).toHaveBeenCalledWith(stream);
+    expect(deps.replaceScreenShareSource).not.toHaveBeenCalled();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(true);
+  });
+
+  it('applies the picked capture without publishing a new stream', async () => {
+    deps.replaceScreenShareSource.mockResolvedValue(true);
+    const stream = await stagedChoice();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('voice:screenPicker.replace'), exact: true }));
+    await waitFor(() => expect(useScreenShareSetupStore.getState().isOpen).toBe(false));
+    expect(deps.replaceScreenShareSource).toHaveBeenCalledWith(deps.room, stream, expect.objectContaining({ isCurrent: expect.any(Function) }));
+    expect(deps.publishScreenShare).not.toHaveBeenCalled();
+    expect(useVoiceStore.getState().isScreenSharing).toBe(true);
+  });
+
+  it('closes and discards the staged capture if the live stream is stopped', async () => {
+    const stream = await stagedChoice();
+    act(() => useVoiceStore.setState({ isScreenSharing: false }));
+    expect(useScreenShareSetupStore.getState().isOpen).toBe(false);
+    expect(deps.stopStagedCapture).toHaveBeenCalledWith(stream);
+  });
 });
 
 afterEach(() => {

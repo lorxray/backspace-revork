@@ -104,7 +104,11 @@
     "kind": {
       "monitor": "Screen",
       "window": "Window"
-    }
+    },
+    "replaceTitle": "Change capture source",
+    "replaceSubtitle": "The current stream stays live while you choose. Apply the new source without restarting it.",
+    "replace": "Apply source",
+    "replaceFailed": "Could not change the capture source. The previous stream was kept where possible."
   },
   "streamSettings": {
     "title": "Stream Settings",

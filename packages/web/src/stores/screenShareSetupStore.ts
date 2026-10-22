@@ -9,14 +9,16 @@ import { create } from 'zustand';
 interface ScreenShareSetupState {
   isOpen: boolean;
   isStarting: boolean;
-  open: () => void;
+  mode: 'start' | 'replace';
+  open: (mode?: 'start' | 'replace') => void;
   close: () => void;
 }
 
 export const useScreenShareSetupStore = create<ScreenShareSetupState>((set, get) => ({
   isOpen: false,
   isStarting: false,
-  open: () => { if (!get().isStarting) set({ isOpen: true }); },
+  mode: 'start',
+  open: (mode = 'start') => { if (!get().isStarting) set({ isOpen: true, mode }); },
   close: () => set({ isOpen: false }),
 }));
 
@@ -30,8 +32,8 @@ export function finishScreenShareStart(): void {
   useScreenShareSetupStore.setState({ isStarting: false });
 }
 
-export function openScreenShareSetup(): void {
-  useScreenShareSetupStore.getState().open();
+export function openScreenShareSetup(mode: 'start' | 'replace' = 'start'): void {
+  useScreenShareSetupStore.getState().open(mode);
 }
 
 export function closeScreenShareSetup(): void {

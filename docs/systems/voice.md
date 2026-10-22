@@ -484,6 +484,8 @@ checking browser/hardware encoding, actual frame dimensions and throughput.
 
 The regular control-bar button, the keybind, the mobile call screen and "Change stream" on the local tile open `ScreenShareSetup` (mounted once in `App.tsx`, opened through `screenShareSetupStore`). The desktop also has a separate quick-start button beside the regular one.
 
+**Change capture while live.** "Change stream" opens the setup in replacement mode. The existing share continues during preview and Cancel discards only the staged capture. Apply uses `replaceScreenShareSource` to replace the primary sender's track, every VP8 backup sender/cache and system audio without replacing the video publication or disconnecting viewers. Stream quality remains unchanged. The old capture and backup clones stop only after the swap commits; failed swaps restore the previous source when possible. Source changes and live quality/audio updates share a serialized queue. Stop invalidates pending swaps immediately, and each swap replaces the previous bounded sender/encoder retry tasks so repeated changes cannot accumulate capture branches or timers.
+
 **Quick start.** `quickStartScreenShare` restores the last successfully used
 quality/audio settings and matches the last desktop source against a new source
 list by ID, name, kind and application icon. Source metadata is held only in the

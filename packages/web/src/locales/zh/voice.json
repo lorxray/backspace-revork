@@ -104,7 +104,11 @@
     "kind": {
       "monitor": "屏幕",
       "window": "窗口"
-    }
+    },
+    "replaceTitle": "更改捕获来源",
+    "replaceSubtitle": "选择期间当前直播将继续。应用新来源无需重启直播。",
+    "replace": "应用来源",
+    "replaceFailed": "无法更改捕获来源。已尽可能保留之前的直播。"
   },
   "streamSettings": {
     "title": "推流设置",

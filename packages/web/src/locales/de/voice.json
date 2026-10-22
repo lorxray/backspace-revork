@@ -104,7 +104,11 @@
     "kind": {
       "monitor": "Bildschirm",
       "window": "Fenster"
-    }
+    },
+    "replaceTitle": "Aufnahmequelle wechseln",
+    "replaceSubtitle": "Der aktuelle Stream läuft während der Auswahl weiter. Die neue Quelle wird ohne Neustart übernommen.",
+    "replace": "Quelle übernehmen",
+    "replaceFailed": "Die Aufnahmequelle konnte nicht gewechselt werden. Der bisherige Stream wurde nach Möglichkeit beibehalten."
   },
   "streamSettings": {
     "title": "Stream-Einstellungen",

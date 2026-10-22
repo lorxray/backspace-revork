@@ -1,5 +1,5 @@
 import { Room, Track, BackupCodecPolicy, AudioPresets, ConnectionState, VideoPreset } from 'livekit-client';
-import type { LocalTrackPublication, TrackPublishOptions } from 'livekit-client';
+import type { LocalTrackPublication, LocalVideoTrack, TrackPublishOptions } from 'livekit-client';
 import { useVoiceStore } from '../stores/voiceStore';
 import type { ScreenShareConfig, ScreenShareAudioState } from '../stores/voiceStore';
 import { getStreamHostLimits } from './streamHostLimits';
@@ -16,6 +16,7 @@ import { acquireAppExcludedSystemAudio } from './systemAudioSource';
 import { getLastScreenShareSource, rememberScreenShareSource } from './lastScreenShareSource';
 import type { LastScreenShareSource } from './lastScreenShareSource';
 import { logScreenShareEncoder, logScreenShareFailure } from './screenShareDiagnostics';
+import { serializeScreenShareUpdate } from './screenShareUpdateQueue';
 import type { InstanceStreamingLimits } from '@backspace/shared';
 import {
   STANDARD_RESOLUTIONS, STANDARD_FRAMERATES, WIDTH_MAP,
@@ -595,6 +596,29 @@ export function getRequestedPublishedScreenShareCodec(): 'vp9' | 'h264' | null {
 
 /** True while republishScreenShare() swaps publications; unpublish handlers must not treat it as a stop. */
 let _republishing = false;
+let _replacingSource = false;
+let _sourceChangeGeneration = 0;
+
+type ScheduledScreenTask = { cancelled: boolean; timer?: ReturnType<typeof setTimeout> };
+const overdriveTasks = new WeakMap<Room, ScheduledScreenTask>();
+const encoderTasks = new WeakMap<Room, ScheduledScreenTask>();
+
+function cancelScreenTask(tasks: WeakMap<Room, ScheduledScreenTask>, room: Room): void {
+  const task = tasks.get(room);
+  if (task) { task.cancelled = true; clearTimeout(task.timer); tasks.delete(room); }
+}
+
+function startScreenTask(tasks: WeakMap<Room, ScheduledScreenTask>, room: Room): ScheduledScreenTask {
+  cancelScreenTask(tasks, room);
+  const task = { cancelled: false };
+  tasks.set(room, task);
+  return task;
+}
+
+function cancelScreenSchedules(room: Room): void {
+  cancelScreenTask(overdriveTasks, room);
+  cancelScreenTask(encoderTasks, room);
+}
 
 /**
  * The room whose full reconnect withdrew the live share's publication. A
@@ -1094,7 +1118,7 @@ export async function syncScreenShareAudio(room: Room): Promise<void> {
  * the switch never reads on while nothing is sent.
  */
 export function handleScreenShareAudioUnpublished(room: Room): void {
-  if (_republishing || _stopping) return;
+  if (_republishing || _stopping || _replacingSource) return;
   const { isScreenSharing, screenShareAudio } = useVoiceStore.getState();
   if (!isScreenSharing || screenShareAudio !== 'published') return;
   if (isReconnecting(room)) {
@@ -1119,12 +1143,13 @@ const OVERDRIVE_ATTEMPT_OFFSETS_MS = [0, 250, 750, 2000, 5000] as const;
  * because they can replace the sender and briefly expose placeholder encodings.
  */
 export function scheduleScreenShareOverdrive(room: Room): void {
+  const task = startScreenTask(overdriveTasks, room);
   const startedAt = Date.now();
   let attemptIndex = 0;
   let captureConfigured = false;
 
   const apply = async (): Promise<void> => {
-    if (!useVoiceStore.getState().isScreenSharing) return;
+    if (task.cancelled || !useVoiceStore.getState().isScreenSharing) return;
     const freshOpts = buildScreenShareOptions(useVoiceStore.getState().screenShareConfig);
 
     const screenPub = room.localParticipant.getTrackPublications()
@@ -1160,8 +1185,9 @@ export function scheduleScreenShareOverdrive(room: Room): void {
       // constraints or restarting the source track.
       resolveNativeOverdrive(mediaTrack, useVoiceStore.getState().screenShareConfig, freshOpts);
     }
+    if (task.cancelled) return;
     const applied = await applyOverdrive(room, Track.Source.ScreenShare, freshOpts.overdrive);
-    if (!useVoiceStore.getState().isScreenSharing) return;
+    if (task.cancelled || !useVoiceStore.getState().isScreenSharing) return;
 
     const lastIndex = OVERDRIVE_ATTEMPT_OFFSETS_MS.length - 1;
     if (attemptIndex >= lastIndex) return;
@@ -1172,7 +1198,7 @@ export function scheduleScreenShareOverdrive(room: Room): void {
     attemptIndex = applied ? lastIndex : attemptIndex + 1;
     const targetOffset = OVERDRIVE_ATTEMPT_OFFSETS_MS[attemptIndex]!;
     const delay = Math.max(0, targetOffset - (Date.now() - startedAt));
-    setTimeout(() => { void apply(); }, delay);
+    task.timer = setTimeout(() => { void apply(); }, delay);
   };
   void apply();
 }
@@ -1284,19 +1310,22 @@ function scheduleEncoderDetection(
   requestedCodec: 'vp9' | 'h264',
   expectedTrackId: string,
 ): void {
+  const task = startScreenTask(encoderTasks, room);
   const startedAt = Date.now();
   let attemptIndex = 0;
   const inspect = async (): Promise<void> => {
+    if (task.cancelled) return;
     try {
       if (await inspectPublishedEncoder(room, requestedCodec, expectedTrackId)) return;
     } catch {
       // Non-critical — the connection inspector still exposes available stats.
     }
+    if (task.cancelled) return;
     attemptIndex += 1;
     if (attemptIndex >= ENCODER_DETECTION_OFFSETS_MS.length) return;
     const targetOffset = ENCODER_DETECTION_OFFSETS_MS[attemptIndex]!;
     const delay = Math.max(0, targetOffset - (Date.now() - startedAt));
-    setTimeout(() => { void inspect(); }, delay);
+    task.timer = setTimeout(() => { void inspect(); }, delay);
   };
   void inspect();
 }
@@ -1306,6 +1335,8 @@ function scheduleEncoderDetection(
 // ---------------------------------------------------------------------------
 
 export async function stopScreenShare(room: Room): Promise<void> {
+  _sourceChangeGeneration++;
+  cancelScreenSchedules(room);
   // Sent first and not awaited: a stop must not wait on the data channel.
   // Viewers handle the message on either side of the removal.
   announceShare(room, 'stream_stop');
@@ -1338,12 +1369,177 @@ export async function stopScreenShare(room: Room): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Change screen share source — stop, then reopen the setup screen
+// Change screen share source while its existing publication keeps running
 // ---------------------------------------------------------------------------
 
 export async function changeScreenShare(room: Room): Promise<void> {
-  await stopScreenShare(room);
-  openScreenShareSetup();
+  if (useVoiceStore.getState().isScreenSharing
+    && room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track) openScreenShareSetup('replace');
+}
+
+/** Replace capture on the existing video sender: no AddTrack, unpublish or viewer restart. */
+export function replaceScreenShareSource(
+  room: Room,
+  stream: MediaStream,
+  options: PublishScreenShareOptions = {},
+): Promise<boolean> {
+  const generation = _sourceChangeGeneration;
+  const publication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+  const video = publication?.track as LocalVideoTrack | undefined;
+  const ownsPublication = () => !!video && generation === _sourceChangeGeneration && !_stopping
+    && useVoiceStore.getState().isScreenSharing
+    && room.state !== ConnectionState.Disconnected && room.state !== ConnectionState.Reconnecting
+    && room.localParticipant.getTrackPublication(Track.Source.ScreenShare) === publication;
+  const isCurrent = () => ownsPublication() && options.isCurrent?.() !== false;
+
+  return serializeScreenShareUpdate(async () => {
+    const nextVideo = stream.getVideoTracks()[0];
+    if (!isCurrent() || !video || !nextVideo || nextVideo.readyState !== 'live') {
+      stopStagedCapture(stream);
+      return false;
+    }
+    const oldVideo = video.mediaStreamTrack;
+    const audio = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track;
+    const oldAudio = audio?.mediaStreamTrack;
+    const config = useVoiceStore.getState().screenShareConfig;
+    const opts = buildScreenShareOptions(config);
+    const nextAudio = config.shareAudio ? stream.getAudioTracks().find(track => track.readyState === 'live') : undefined;
+    const backupBindings = [...video.simulcastCodecs.values()];
+    const backups: Array<{ backup: (typeof backupBindings)[number]; old: MediaStreamTrack; next: MediaStreamTrack; attempted: boolean }> = [];
+    const restoredTracks: MediaStreamTrack[] = [];
+    let primaryAttempted = false;
+    let audioAttempted = false;
+    let addedAudio = false;
+    let removedAudio = false;
+    let committed = false;
+    cancelScreenSchedules(room);
+    _replacingSource = true;
+    const check = () => { if (!isCurrent() || nextVideo.readyState !== 'live') throw new DOMException('Source change cancelled', 'AbortError'); };
+    const refreshLocalTracks = () => useVoiceStore.setState(state => ({
+      participants: state.participants.map(participant => participant.isLocal ? {
+        ...participant, screenTrack: video.mediaStreamTrack, lkScreenTrack: video,
+        screenAudioTrack: room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track?.mediaStreamTrack ?? null,
+      } : participant),
+    }));
+    try {
+      await applyStagedCaptureConfig(stream);
+      check();
+      nextVideo.contentHint = opts.contentHint;
+      resolveNativeOverdrive(nextVideo, config, opts);
+      for (const backup of backupBindings) backups.push({ backup, old: backup.mediaStreamTrack, next: nextVideo.clone(), attempted: false });
+      primaryAttempted = true;
+      await video.replaceTrack(nextVideo, true);
+      check();
+      // SDK replaceTrack swaps only the primary source. Its backup senders and
+      // their owned clones must follow, or they keep the previous OS capture alive.
+      for (const entry of backups) {
+        entry.attempted = true;
+        if (entry.backup.sender) await entry.backup.sender.replaceTrack(entry.next);
+        entry.backup.mediaStreamTrack = entry.next;
+        check();
+      }
+      if (nextAudio && audio) {
+        audioAttempted = true;
+        await audio.replaceTrack(nextAudio, true);
+      } else if (nextAudio) {
+        addedAudio = true;
+        await publishScreenShareAudioTrack(room, nextAudio);
+      } else if (audio) {
+        removedAudio = true;
+        await room.localParticipant.unpublishTrack(audio, false);
+      }
+      check();
+      _heldAudio?.stop();
+      _heldAudio = null;
+      _liveSource = options.sourceId ? { id: options.sourceId, pickerMode: options.pickerMode ?? null } : null;
+      publishedScreenShareSignatures.set(room, screenSharePublishSignature(opts, nextVideo));
+      if (options.source !== undefined) {
+        rememberScreenShareSource(options.source);
+        useVoiceStore.getState().setLastScreenShareSourceId(options.source?.id ?? null);
+        const saved = getLastScreenShareSource();
+        nextVideo.addEventListener('ended', () => {
+          if (getLastScreenShareSource() === saved) rememberScreenShareSource(null);
+        }, { once: true });
+      }
+      if (!nextAudio) {
+        const captured = stream.getAudioTracks().find(track => track.readyState === 'live');
+        if (captured) setAsideScreenShareAudio(captured);
+      }
+      setScreenShareAudioState(nextAudio ? 'published' : idleScreenShareAudioState());
+      refreshLocalTracks();
+      committed = true;
+      oldVideo.stop();
+      for (const entry of backups) entry.old.stop();
+      if (oldAudio !== nextAudio) oldAudio?.stop();
+      // No await after committing: the picker still owns the staged stream
+      // until this promise returns, so Cancel must not stop a committed source.
+      if (isCurrent()) {
+        scheduleScreenShareOverdrive(room);
+        scheduleEncoderDetection(room, config.codec, nextVideo.id);
+      }
+      return isCurrent();
+    } catch (error) {
+      if (ownsPublication()) {
+        try {
+          const checkRestore = () => { if (!ownsPublication()) throw new DOMException('Source change cancelled', 'AbortError'); };
+          if (addedAudio && nextAudio) await room.localParticipant.unpublishTrack(nextAudio, false);
+          checkRestore();
+          if (removedAudio && oldAudio && !room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)) await publishScreenShareAudioTrack(room, oldAudio);
+          checkRestore();
+          if (audioAttempted && audio && oldAudio) {
+            const restoredAudio = oldAudio.clone();
+            restoredTracks.push(restoredAudio);
+            await audio.replaceTrack(restoredAudio, true);
+            oldAudio.stop();
+          }
+          checkRestore();
+          for (const entry of [...backups].reverse()) {
+            if (entry.attempted && entry.backup.sender) await entry.backup.sender.replaceTrack(entry.old);
+            checkRestore();
+            entry.backup.mediaStreamTrack = entry.old;
+          }
+          if (primaryAttempted) {
+            // A failed SDK replacement may have already detached old listeners.
+            // A clone forces a complete rebind while retaining the old source.
+            const restored = oldVideo.clone();
+            restoredTracks.push(restored);
+            try { await video.replaceTrack(restored, true); } catch (restoreError) { restored.stop(); throw restoreError; }
+            oldVideo.stop();
+            const saved = getLastScreenShareSource();
+            restored.addEventListener('ended', () => {
+              if (getLastScreenShareSource() === saved) rememberScreenShareSource(null);
+            }, { once: true });
+          }
+          if (ownsPublication()) { refreshLocalTracks(); scheduleScreenShareOverdrive(room); }
+        } catch (restoreError) {
+          console.warn('[ScreenShare] Could not restore the previous capture:', restoreError);
+          if (ownsPublication()) await stopScreenShare(room);
+        }
+      }
+      if (!isCaptureCancellation(error)) console.warn('[ScreenShare] Could not replace the capture source:', error);
+      return false;
+    } finally {
+      _replacingSource = false;
+      if (!committed) {
+        stopStagedCapture(stream);
+        for (const entry of backups) entry.next.stop();
+        if (!ownsPublication()) {
+          const staleAudio = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track;
+          if (staleAudio && (staleAudio.mediaStreamTrack === nextAudio
+            || staleAudio.mediaStreamTrack === oldAudio || restoredTracks.includes(staleAudio.mediaStreamTrack))) {
+            try { await room.localParticipant.unpublishTrack(staleAudio, true); } catch { staleAudio.stop(); }
+          }
+          oldVideo.stop(); oldAudio?.stop();
+          for (const entry of backups) entry.old.stop();
+          for (const track of restoredTracks) track.stop();
+        }
+      } else {
+        for (const track of stream.getTracks()) {
+          if (track !== nextVideo && track !== nextAudio && track !== _heldAudio) track.stop();
+        }
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1419,6 +1615,8 @@ function announceShare(room: Room, signal: ShareSignal): void {
 
 /** The share is over without stopScreenShare: the OS stop bar, a source that ended, a reconnect that lost it. */
 function endLocalShare(room: Room): void {
+  _sourceChangeGeneration++;
+  cancelScreenSchedules(room);
   _reconnectingRoom = null;
   announceShare(room, 'stream_stop');
   deactivateHwOverdrive();

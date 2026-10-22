@@ -15,6 +15,7 @@ import {
   applyStagedCaptureConfig,
   stopStagedCapture,
   publishScreenShare,
+  replaceScreenShareSource,
   isScreenCaptureSupported,
   isCaptureCancellation,
   canAddScreenShareAudioLater,
@@ -66,7 +67,7 @@ type Tab = ScreenSourceTab;
  * "Ready to go live" and let the preview speak.
  */
 type CapturedSurfaceKind = 'monitor' | 'window';
-type SetupError = 'cancelled' | 'unsupported' | 'captureFailed' | 'startFailed' | null;
+type SetupError = 'cancelled' | 'unsupported' | 'captureFailed' | 'startFailed' | 'replaceFailed' | null;
 
 function errorKey(err: unknown): SetupError {
   if (isCaptureCancellation(err)) return 'cancelled';
@@ -78,6 +79,8 @@ export function ScreenShareSetup() {
   const { t } = useTranslation(['voice', 'common']);
   const isOpen = useScreenShareSetupStore((s) => s.isOpen);
   const close = useScreenShareSetupStore((s) => s.close);
+  const replacing = useScreenShareSetupStore((s) => s.mode === 'replace');
+  const sourceRoomRef = useRef<ReturnType<typeof getActiveRoom>>(null);
   const portalContainer = usePortalContainer();
   const config = useVoiceStore((s) => s.screenShareConfig);
   const lastSourceId = useVoiceStore((s) => s.lastScreenShareSourceId);
@@ -303,6 +306,7 @@ export function ScreenShareSetup() {
     setStarting(false);
     setSettingsOpen(false);
     setSources([]);
+    sourceRoomRef.current = replacing ? getActiveRoom() : null;
     // Abandon anything still in flight from the previous open, and drop a
     // capture staged back then: reopening must never offer a stale surface as
     // "ready to go live", nor let Start publish it instead of a fresh pick.
@@ -313,7 +317,7 @@ export function ScreenShareSetup() {
     setStaging(false);
     markPromptInFlight(false);
     pendingPromptIdRef.current = null;
-  }, [isOpen, replaceStaged, markPromptInFlight]);
+  }, [isOpen, replacing, replaceStaged, markPromptInFlight]);
 
   // Stage the remembered source (or a lone screen) so the common case needs a
   // single click on Start
@@ -384,8 +388,8 @@ export function ScreenShareSetup() {
 
   // Already live (started elsewhere while open): the setup no longer applies
   useEffect(() => {
-    if (isOpen && isScreenSharing && !starting) handleClose();
-  }, [isOpen, isScreenSharing, starting, handleClose]);
+    if (isOpen && !starting && (replacing ? !isScreenSharing : isScreenSharing)) handleClose();
+  }, [isOpen, isScreenSharing, replacing, starting, handleClose]);
 
   // Escape closes the drawer first, then the screen; also release the capture on unmount
   useEffect(() => {
@@ -403,7 +407,7 @@ export function ScreenShareSetup() {
   const handleStart = useCallback(async () => {
     const stream = stagedRef.current;
     const room = getActiveRoom();
-    if (!stream || !room) { setError('startFailed'); return; }
+    if (!stream || !room || (replacing && sourceRoomRef.current !== room)) { setError(replacing ? 'replaceFailed' : 'startFailed'); return; }
     if (!beginScreenShareStart()) return;
     const generation = stageGenerationRef.current;
     let abandoned = false;
@@ -417,7 +421,7 @@ export function ScreenShareSetup() {
     setError(null);
     let ok: boolean;
     try {
-      ok = await publishScreenShare(room, stream, {
+      ok = await (replacing ? replaceScreenShareSource : publishScreenShare)(room, stream, {
         sourceId: selectedId,
         pickerMode,
         source: sources.find((source) => source.id === selectedId) ?? null,
@@ -433,16 +437,16 @@ export function ScreenShareSetup() {
       setStaged(null);
       setSelectedId(null);
       setStarting(false);
-      if (generation === stageGenerationRef.current) setError('startFailed');
+      if (generation === stageGenerationRef.current) setError(replacing ? 'replaceFailed' : 'startFailed');
       return;
     }
-    broadcastVoiceStatus();
+    if (!replacing) broadcastVoiceStatus();
     // Ownership moved to LiveKit: do not stop the tracks on close
     stagedRef.current = null;
     setStaged(null);
     setStarting(false);
     close();
-  }, [close, selectedId, pickerMode, sources]);
+  }, [close, selectedId, pickerMode, sources, replacing]);
 
   const screens = useMemo(() => sources.filter((s) => s.isScreen), [sources]);
   const windows = useMemo(() => {
@@ -493,8 +497,8 @@ export function ScreenShareSetup() {
         {/* Header */}
         <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3 flex-shrink-0">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-txt-primary leading-tight">{t('voice:screenPicker.title')}</h2>
-            <p className="text-[13px] text-txt-tertiary mt-0.5">{t('voice:screenPicker.subtitle')}</p>
+            <h2 className="text-xl font-bold text-txt-primary leading-tight">{t(replacing ? 'voice:screenPicker.replaceTitle' : 'voice:screenPicker.title')}</h2>
+            <p className="text-[13px] text-txt-tertiary mt-0.5">{t(replacing ? 'voice:screenPicker.replaceSubtitle' : 'voice:screenPicker.subtitle')}</p>
           </div>
           <button
             onClick={handleClose}
@@ -718,7 +722,7 @@ export function ScreenShareSetup() {
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-5 py-4">
-              <StreamQualityControls />
+              {!replacing && <StreamQualityControls />}
             </div>
           </div>
         </div>
@@ -728,6 +732,7 @@ export function ScreenShareSetup() {
           <div className="min-w-0 flex flex-col">
             <button
               onClick={() => setSettingsOpen(true)}
+              disabled={replacing}
               className="text-left hover:text-txt-secondary transition-colors truncate"
               title={t('voice:streamSettings.title')}
             >
@@ -742,6 +747,8 @@ export function ScreenShareSetup() {
           <div className="glass-bubble rounded-full px-2 py-2 flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setSettingsOpen((open) => !open)}
+              disabled={replacing}
+              hidden={replacing}
               aria-expanded={settingsOpen}
               aria-controls="stream-settings-drawer-panel"
               aria-label={t('voice:streamSettings.title')}
@@ -769,7 +776,7 @@ export function ScreenShareSetup() {
               disabled={!canStart}
               className="px-4 py-1.5 bg-accent-primary hover:bg-accent-primary-hover text-white text-sm font-semibold rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {t('voice:screenPicker.start')}
+              {t(replacing ? 'voice:screenPicker.replace' : 'voice:screenPicker.start')}
             </button>
           </div>
         </div>

@@ -47,6 +47,7 @@ import { StreamResumeMemory, type RememberedStream } from '../utils/streamResume
 import { StreamViewerQualityController } from '../utils/streamViewerQuality';
 import { getMediaStreamTrack } from '../utils/livekitInternals';
 import { deactivate as deactivateHwOverdrive } from '../utils/hwOverdrive';
+import { serializeScreenShareUpdate } from '../utils/screenShareUpdateQueue';
 
 let _activeRoom: Room | null = null;
 /**
@@ -1270,7 +1271,7 @@ export function useLiveKit() {
       }
       if (isCameraOn) { await applyOverdrive(room, Track.Source.Camera, CAMERA_OVERDRIVE); }
     };
-    _activeTrackUpdate = _activeTrackUpdate.then(updateActiveTracks).catch(() => {});
+    _activeTrackUpdate = _activeTrackUpdate.then(() => serializeScreenShareUpdate(updateActiveTracks)).catch(() => {});
     return () => { superseded = true; };
   }, [room, screenShareConfig, streamHostLimits, isScreenSharing, isCameraOn]);
 
