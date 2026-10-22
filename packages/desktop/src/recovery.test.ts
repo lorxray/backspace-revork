@@ -357,6 +357,17 @@ describe('armBootTimer / clearBootTimer', () => {
 });
 
 describe('manual-download update state in the menus', () => {
+  it('starts an in-app download only from the offered Download action', () => {
+    const download = vi.fn();
+    const items = buildTrayMenuTemplate(
+      defaultState({ updateState: 'available', updateVersion: '1.11.11' }),
+      { onDownloadUpdate: download },
+    );
+    expect(download).not.toHaveBeenCalled();
+    (items.find(item => item.id === 'download-update')!.click as () => void)();
+    expect(download).toHaveBeenCalledOnce();
+    expect(items.some(item => item.id === 'restart-to-install')).toBe(false);
+  });
   it('offers a versioned Download item instead of Restart to Install', () => {
     // An ad-hoc signed macOS build. Restart to Install would be a dead button
     // here, because Squirrel.Mac can never satisfy the running app's

@@ -4,7 +4,8 @@
     "dismiss": "Dispensar esta atualização",
     "failed": {
       "title": "Não foi possível instalar a atualização",
-      "body": "O Backspace {{version}} foi baixado, mas a instalação falhou. Você pode instalá-lo manualmente."
+      "body": "O Backspace {{version}} foi baixado, mas a instalação falhou. Você pode instalá-lo manualmente.",
+      "consentBody": "Não foi possível atualizar o Backspace {{version}}. Tente novamente nas configurações do aplicativo ou baixe manualmente."
     },
     "ready": {
       "title": "Atualização pronta",
@@ -13,10 +14,13 @@
     "available": {
       "title": "O Backspace {{version}} está disponível",
       "body": "Esta versão não consegue se atualizar sozinha, então baixe a nova versão para atualizar.",
-      "bodyWithCurrent": "Você está na versão {{currentVersion}}. Esta versão não consegue se atualizar sozinha, então baixe a nova versão para atualizar."
+      "bodyWithCurrent": "Você está na versão {{currentVersion}}. Esta versão não consegue se atualizar sozinha, então baixe a nova versão para atualizar.",
+      "consentBody": "Baixar esta atualização? A instalação exigirá uma confirmação separada."
     },
     "restartNow": "Reiniciar agora",
     "download": "Baixar",
-    "later": "Depois"
+    "later": "Depois",
+    "installAndRestart": "Instalar e reiniciar",
+    "downloading": "Baixando Backspace {{version}}: {{percent}}%"
   }
 }

@@ -107,6 +107,8 @@ function UpdateSettings() {
   const currentVersion = useUpdateStore((s) => s.currentVersion);
   const checkNow = useUpdateStore((s) => s.checkNow);
   const install = useUpdateStore((s) => s.install);
+  const download = useUpdateStore((s) => s.download);
+  const cancelDownload = useUpdateStore((s) => s.cancelDownload);
   const openDownloadPage = useUpdateStore((s) => s.openDownloadPage);
 
   useEffect(() => initialize(), [initialize]);
@@ -114,6 +116,7 @@ function UpdateSettings() {
   const status = snapshot?.status ?? { phase: 'idle' as const };
   const capability = snapshot?.capability ?? 'auto';
   const busy = status.phase === 'checking' || status.phase === 'downloading';
+  const consentFlow = !!window.backspace?.downloadUpdate;
 
   let detail: string;
   let tone = 'text-txt-tertiary';
@@ -132,6 +135,7 @@ function UpdateSettings() {
             rate: formatRate(t, formatters, status.bytesPerSecond),
           })
         : t('desktop.updates.downloading', { version: status.version, percent });
+      if (window.backspace?.cancelUpdateDownload) action = { label: t('desktop.updates.cancelDownload'), onClick: cancelDownload };
       break;
     }
     case 'up-to-date':
@@ -140,12 +144,12 @@ function UpdateSettings() {
       break;
     case 'available':
       detail = t('desktop.updates.available', { version: status.version });
-      action = { label: t('desktop.updates.download'), onClick: openDownloadPage };
+      action = { label: t('desktop.updates.download'), onClick: download };
       break;
     case 'ready':
       if (capability === 'auto') {
         detail = t('desktop.updates.readyToInstall', { version: status.version });
-        action = { label: t('desktop.updates.restart'), onClick: install };
+        action = { label: t(consentFlow ? 'desktop.updates.installAndRestart' : 'desktop.updates.restart'), onClick: install };
       } else {
         detail = t('desktop.updates.available', { version: status.version });
         action = { label: t('desktop.updates.download'), onClick: openDownloadPage };
@@ -153,7 +157,7 @@ function UpdateSettings() {
       break;
     case 'failed':
       if (status.version) {
-        detail = t('desktop.updates.installFailed', { version: status.version });
+        detail = t(consentFlow ? 'desktop.updates.updateFailed' : 'desktop.updates.installFailed', { version: status.version });
         tone = 'text-accent-rose';
         action = { label: t('desktop.updates.download'), onClick: openDownloadPage };
       } else {

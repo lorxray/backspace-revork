@@ -37,6 +37,9 @@ const en = {
   'update.restartToInstall': 'Restart to Install Update',
   'update.downloadVersion': 'Download Backspace {version}…',
   'update.download': 'Download the Update…',
+  'update.confirmTitle': "Install update",
+  'update.confirmCall': "Installing the update will restart Backspace and end the active call. Continue?",
+  'update.cancel': "Cancel",
 } as const;
 
 export type DesktopStringKey = keyof typeof en;
@@ -60,6 +63,9 @@ const ru: Catalog = {
   'update.restartToInstall': 'Перезапустить для установки',
   'update.downloadVersion': 'Скачать Backspace {version}…',
   'update.download': 'Скачать обновление…',
+  'update.confirmTitle': "Установка обновления",
+  'update.confirmCall': "Установка обновления перезапустит Backspace и завершит текущий звонок. Продолжить?",
+  'update.cancel': "Отмена",
 };
 
 const de: Catalog = {
@@ -79,6 +85,9 @@ const de: Catalog = {
   'update.restartToInstall': 'Neu starten und Update installieren',
   'update.downloadVersion': 'Backspace {version} herunterladen…',
   'update.download': 'Update herunterladen…',
+  'update.confirmTitle': "Update installieren",
+  'update.confirmCall': "Die Installation startet Backspace neu und beendet den laufenden Anruf. Fortfahren?",
+  'update.cancel': "Abbrechen",
 };
 
 const zh: Catalog = {
@@ -98,6 +107,9 @@ const zh: Catalog = {
   'update.restartToInstall': '重启以安装更新',
   'update.downloadVersion': '下载 Backspace {version}…',
   'update.download': '下载更新…',
+  'update.confirmTitle': "安装更新",
+  'update.confirmCall': "安装更新将重启 Backspace 并结束当前通话。是否继续？",
+  'update.cancel': "取消",
 };
 
 const pt: Catalog = {
@@ -117,6 +129,9 @@ const pt: Catalog = {
   'update.restartToInstall': 'Reiniciar para instalar',
   'update.downloadVersion': 'Baixar Backspace {version}…',
   'update.download': 'Baixar atualização…',
+  'update.confirmTitle': "Instalar atualização",
+  'update.confirmCall': "A instalação reiniciará o Backspace e encerrará a chamada atual. Continuar?",
+  'update.cancel': "Cancelar",
 };
 
 export const DESKTOP_CATALOGS: Record<DesktopLanguage, Catalog> = { en, ru, de, pt, zh };

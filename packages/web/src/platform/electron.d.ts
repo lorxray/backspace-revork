@@ -100,7 +100,9 @@ interface BackspaceElectronAPI {
   onUpdateAvailable: (callback: (info: { version: string }) => void) => void;
   onUpdateDownloaded: (callback: (info: { version: string }) => void) => void;
   onUpdateError: (callback: (error: { message: string; releaseUrl: string }) => void) => void;
-  installUpdate: () => void;
+  installUpdate: (version?: string, callActive?: boolean) => void;
+  downloadUpdate?: (version: string) => void;
+  cancelUpdateDownload?: (version: string) => void;
   checkForUpdates: () => void;
   getVersion: () => Promise<string>;
 

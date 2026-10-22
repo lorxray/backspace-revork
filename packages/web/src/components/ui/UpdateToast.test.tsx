@@ -5,6 +5,12 @@ import { UpdateToast } from './UpdateToast';
 import { useUpdateStore } from '../../stores/updateStore';
 import { useUIStore } from '../../stores/uiStore';
 
+const voiceState = vi.hoisted(() => ({ isLiveKitConnected: false, voiceConnectionStatus: 'disconnected' }));
+vi.mock('../../stores/voiceStore', () => ({
+  useVoiceStore: { getState: () => voiceState },
+  isInVoiceRoom: (state: typeof voiceState) => state.isLiveKitConnected || state.voiceConnectionStatus === 'reconnecting',
+}));
+
 interface HostStubs {
   dismissUpdate: ReturnType<typeof vi.fn>;
   installUpdate: ReturnType<typeof vi.fn>;
@@ -44,6 +50,7 @@ function installHost(initial: unknown, omit: string[] = []): void {
 }
 
 beforeEach(() => {
+  voiceState.isLiveKitConnected = false;
   push = null;
   useUpdateStore.setState({ snapshot: null, currentVersion: null, legacyBridge: false });
   useUIStore.setState({ toasts: [] });
@@ -224,5 +231,50 @@ describe('UpdateToast, older desktop app', () => {
     legacyDownloaded!({ version: '1.0.4' });
     expect(await screen.findByText('Update ready')).toBeInTheDocument();
     expect(useUpdateStore.getState().legacyBridge).toBe(true);
+  });
+});
+
+describe('UpdateToast, explicit download and installation consent', () => {
+  function host(status: DesktopUpdateStatus) {
+    installHost({ capability: 'auto', dismissedVersion: null, status });
+    const downloadUpdate = vi.fn(); const cancelUpdateDownload = vi.fn();
+    Object.assign(window.backspace!, { downloadUpdate, cancelUpdateDownload });
+    return { downloadUpdate, cancelUpdateDownload };
+  }
+
+  it('waits for Download and binds the request to the offered version', async () => {
+    const api = host({ phase: 'available', version: '1.11.11' });
+    render(<UpdateToast />);
+    await screen.findByText(/Installation will require separate confirmation/);
+    expect(api.downloadUpdate).not.toHaveBeenCalled(); expect(stubs.installUpdate).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+    expect(api.downloadUpdate).toHaveBeenCalledWith('1.11.11');
+    expect(stubs.openReleasePage).not.toHaveBeenCalled(); expect(stubs.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it('Later does not download or install', async () => {
+    const api = host({ phase: 'available', version: '1.11.11' });
+    render(<UpdateToast />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Later' }));
+    expect(api.downloadUpdate).not.toHaveBeenCalled(); expect(stubs.installUpdate).not.toHaveBeenCalled();
+    expect(stubs.dismissUpdate).toHaveBeenCalledWith('1.11.11');
+  });
+
+  it('shows progress and sends Cancel only for the downloading version', async () => {
+    const api = host({ phase: 'downloading', version: '1.11.11', percent: 42, bytesPerSecond: 1000 });
+    render(<UpdateToast />);
+    expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(api.cancelUpdateDownload).toHaveBeenCalledWith('1.11.11');
+    expect(stubs.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('waits for Install and restart and reports active call: %s', async active => {
+    host({ phase: 'ready', version: '1.11.11' }); voiceState.isLiveKitConnected = active;
+    render(<UpdateToast />);
+    const button = await screen.findByRole('button', { name: 'Install and restart' });
+    expect(stubs.installUpdate).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    await waitFor(() => expect(stubs.installUpdate).toHaveBeenCalledWith('1.11.11', active));
   });
 });

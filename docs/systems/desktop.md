@@ -332,9 +332,9 @@ for why the ad-hoc signature makes it impossible today.
 ### Configuration (`initAutoUpdater()`)
 
 ```
-autoDownload         = capability === 'auto'
-autoInstallOnAppQuit = capability === 'auto'
-Publish: GitHub (TheZwiss/backspace)
+autoDownload         = false
+autoInstallOnAppQuit = false
+Publish: GitHub (lorxray/backspace-revork)
 ```
 
 In `manual` mode nothing is downloaded, so no proxy server is created, Squirrel
@@ -450,24 +450,25 @@ someone because a background poll hit a flaky network is noise.
 
 `install-update` IPC:
 
-- `manual` → opens the releases page because there is no in-place install.
+- `manual` → does nothing; the Download action opens the releases page.
 - `external` → does nothing because the package manager owns the entire update
   lifecycle and no in-app action is presented for this capability.
-- otherwise → `autoUpdater.quitAndInstall()`, then a **4-second watchdog**. If the
+- `auto` → validates the ready version, confirms ending an active call, then
+  calls the selected updater's `quitAndInstall()`, followed by a **4-second watchdog**. If the
   app is still alive and still `ready` after it, the status flips to `failed`.
   A successful install takes the app down before the timer fires. This is defence
   in depth against the silent no-op recurring on a platform we did not anticipate.
 
 ### Notification
 
-Fires on `update-available` in manual mode and `update-downloaded` in auto mode,
+Fires on `update-available` and on `update-downloaded`,
 suppressed when the window is focused (the in-app toast covers that) and when
 `shouldPromptForUpdate` says no.
 
 | Capability | Title | Body | Click |
 |---|---|---|---|
-| `auto` | Backspace update ready | Click to restart and install version X. | `quitAndInstall()` |
-| `manual` | Backspace X is available | Click to open the download page. | `shell.openExternal(RELEASES_URL)` |
+| `auto` | Backspace update ready / version available | Open Backspace to choose when to download or install. | Show and focus main window |
+| `manual` | Backspace X is available | Open Backspace to choose whether to download. | Show and focus main window |
 | `external` | — | No in-app notification; the package manager notifies the user. | — |
 
 Win32 only: `app.setAppUserModelId('com.backspace.desktop')` is set early in
@@ -763,7 +764,9 @@ When the app is launched with `--hidden` (autostart), `enterRecoveryMode()` alwa
 
 ### Force-Kill Fix
 
-The recovery surface's "Restart to Install Update" button — and the native notification's click handler — both call `autoUpdater.quitAndInstall()` **directly**. They do not rely on `autoInstallOnAppQuit`'s on-quit hook.
+The recovery surface's "Restart to Install Update" button uses the main-process
+consent wrapper, including a native confirmation before restarting when call
+state is unavailable. Native notification clicks only open the application.
 
 Why this matters: a user who Task-Manager-kills a broken app never triggers the on-quit hook; the downloaded update sits on disk. On next launch, the app loads the same broken old version. With recovery active, the user lands in recovery → clicks Restart → install applies cleanly via the direct call. The on-quit hook bypass is no longer fatal.
 
@@ -792,7 +795,7 @@ Executed before each release. See `docs/superpowers/specs/2026-05-03-electron-re
 
 - Checks `Notification.isSupported()` before showing
 - `silent: false` (plays system sound)
-- Click handler: defaults to show + focus the main window; an optional `onClick` parameter overrides this (used by the update-ready notification to call `autoUpdater.quitAndInstall()` directly)
+- Click handler: defaults to show + focus the main window; update notifications also only show and focus it
 - **Kept referenced until done** (`notificationRetention.ts`, `NotificationRetainer`): each `Notification` is held in a module-level set from just before `show()` until its first `click`, `close` or `failed`. Without the reference the object can be garbage-collected while the toast is still on screen, and on Windows its click handler then never runs, so clicking a chat toast did nothing (#394). Windows does not promise a `close` (a toast that times out into the Action Center may never send one), so the set is capped at 100: past it the oldest is released. A `failed` event is logged (`[notifications]`).
 
 Chat notifications carry optional `{ channelId, spaceId, userId }` context through
@@ -959,7 +962,9 @@ All handlers registered in `main.ts:registerIpcHandlers()`.
 | `minimize-window` | R->M | — | Minimize window |
 | `maximize-window` | R->M | — | Toggle maximize/unmaximize |
 | `close-window` | R->M | — | Close (hides to tray) |
-| `install-update` | R->M | — | `quitAndInstall()` on auto-capable builds, otherwise opens the releases page. 4s watchdog flips the status to `failed` if the app is still running |
+| `install-update` | R->M | `{ version, callActive }` | Validates ready version and confirms ending an active call before installation; legacy calls without payload require confirmation. 4s watchdog detects a stalled restart |
+| `download-update` | R->M | `{ version }` | Downloads only the offered version after the user clicks Download |
+| `cancel-update-download` | R->M | `{ version }` | Cancels the current download without starting installation |
 | `check-for-updates` | R->M | — | `autoUpdater.checkForUpdates()` |
 | `dismiss-update` | R->M | `{ version }` | Persists the dismissal and re-pushes the snapshot |
 | `open-release-page` | R->M | — | `shell.openExternal(RELEASES_URL)` |
@@ -1543,11 +1548,24 @@ contains the generated update metadata.
 
 Windows x64 portable EXEs check the public latest-release API directly,
 accepting stable `v<version>` and `desktop-v<version>-revork.<number>` tags.
-They download the matching portable asset in the background, verify its size,
-SHA-256 (GitHub's asset digest or the release's `SHA256SUMS.txt`) and Windows
-executable header, then offer **Restart to install**. A normal Exit also applies
-a ready update, without reopening the application. Downloads do not interrupt
-a call, and interrupted/invalid downloads never replace the current EXE.
+Checks run 10 seconds after startup, every four hours, and on request. They only
+read release metadata. **Download** explicitly authorizes the offered version;
+progress and **Cancel download** are shown in the prompt and Desktop settings.
+The download verifies size, SHA-256 (GitHub's asset digest or the release's
+`SHA256SUMS.txt`) and Windows executable header. Installation requires a second
+click on **Install and restart**, with another confirmation during a voice call.
+Both `autoDownload` and `autoInstallOnAppQuit` are disabled for all updater types.
+Normal Exit and Windows shutdown never install an update. Native notifications
+only show the application; they cannot directly download or install anything.
+
+The portable saves a verified download and `updates/portable/ready-update.json`
+in userData. On the next launch it checks the saved version, filename, checksum
+and PE header before offering installation again, without a network transfer.
+Missing, altered, outdated or cancelled files never authorize a new download.
+Cancelling removes partial/cache files; retrying needs a fresh Download click.
+`updateConsent.ts` binds both actions to the selected version and rechecks ready
+state after the call confirmation. Downloads do not interrupt calls, and
+interrupted/invalid downloads never replace the current EXE.
 
 `PORTABLE_EXECUTABLE_FILE` identifies the outer portable launcher even if it
 has been renamed. A small bundled Windows helper acknowledges readiness before

@@ -46,8 +46,14 @@ contextBridge.exposeInMainWorld('backspace', {
   onUpdateError: (callback: (error: { message: string; releaseUrl: string }) => void) => {
     ipcRenderer.on('update-error', (_event, error) => callback(error));
   },
-  installUpdate: () => {
-    ipcRenderer.send('install-update');
+  installUpdate: (version?: string, callActive?: boolean) => {
+    ipcRenderer.send('install-update', { version, callActive });
+  },
+  downloadUpdate: (version: string) => {
+    ipcRenderer.send('download-update', { version });
+  },
+  cancelUpdateDownload: (version: string) => {
+    ipcRenderer.send('cancel-update-download', { version });
   },
   checkForUpdates: () => {
     ipcRenderer.send('check-for-updates');

@@ -87,6 +87,12 @@ describe('dismissal round-trip on disk', () => {
     expect(loadDismissedVersion(file)).toBe('1.0.5');
   });
 
+  it('clears a previous dismissal when the user starts downloading', () => {
+    setDismissedVersion('1.11.11', file);
+    setDismissedVersion(null, file);
+    expect(loadDismissedVersion(file)).toBeNull();
+  });
+
   it('returns null when the file does not exist', () => {
     expect(loadDismissedVersion(path.join(dir, 'absent.json'))).toBeNull();
   });

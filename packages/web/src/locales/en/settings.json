@@ -377,7 +377,10 @@
       "download": "Download",
       "restart": "Restart",
       "manualNote": "This build cannot install updates itself, so new versions are downloaded from GitHub and replace the app by hand. See the release notes for the steps on your platform.",
-      "externalNote": "Flatpak applies updates atomically outside the app. Use your software manager or the <code>flatpak update</code> command to update Backspace."
+      "externalNote": "Flatpak applies updates atomically outside the app. Use your software manager or the <code>flatpak update</code> command to update Backspace.",
+      "installAndRestart": "Install and restart",
+      "cancelDownload": "Cancel download",
+      "updateFailed": "Backspace {{version}} could not be updated"
     },
     "instance": {
       "current": "Currently connected instance",

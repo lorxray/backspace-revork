@@ -376,7 +376,10 @@
       "download": "下载",
       "restart": "重启",
       "manualNote": "当前构建版本无法自动安装更新，因此需要从 GitHub 下载新版本并手动替换应用。请查阅发布说明以获取适用于您平台的步骤。",
-      "externalNote": "Flatpak 在应用外部以原子方式应用更新。请使用您的软件管理器或运行 <code>flatpak update</code> 命令来更新 Backspace。"
+      "externalNote": "Flatpak 在应用外部以原子方式应用更新。请使用您的软件管理器或运行 <code>flatpak update</code> 命令来更新 Backspace。",
+      "installAndRestart": "安装并重启",
+      "cancelDownload": "取消下载",
+      "updateFailed": "无法更新 Backspace {{version}}"
     },
     "instance": {
       "current": "当前连接的实例",

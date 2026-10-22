@@ -11,9 +11,8 @@ import { useUIStore } from '../../stores/uiStore';
 /**
  * The persistent update prompt.
  *
- * Renders nothing in a browser, nothing while an update is merely downloading
- * or being checked for, and nothing for a version the user has already
- * dismissed. When it does render, every button it offers actually does
+ * Renders the two consent steps and progress after a user starts downloading.
+ * A dismissed version stays reachable in settings. Every button it offers does
  * something: a Restart button appears only on a build that can install in
  * place, and a build that cannot says so in plain words instead of presenting a
  * control that silently fails.
@@ -29,12 +28,16 @@ export function UpdateToast() {
   const currentVersion = useUpdateStore((s) => s.currentVersion);
   const dismiss = useUpdateStore((s) => s.dismiss);
   const install = useUpdateStore((s) => s.install);
+  const download = useUpdateStore((s) => s.download);
+  const cancelDownload = useUpdateStore((s) => s.cancelDownload);
   const openDownloadPage = useUpdateStore((s) => s.openDownloadPage);
   const addToast = useUIStore((s) => s.addToast);
 
   useEffect(() => initialize(), [initialize]);
 
-  if (!shouldPrompt(snapshot) || snapshot === null) return null;
+  const consentFlow = !!window.backspace?.downloadUpdate && snapshot?.capability === 'auto';
+  const downloading = consentFlow && snapshot?.status.phase === 'downloading';
+  if (snapshot === null || (!shouldPrompt(snapshot) && !downloading)) return null;
 
   const version = statusVersion(snapshot.status);
   if (version === null) return null;
@@ -51,15 +54,18 @@ export function UpdateToast() {
 
   let title: string;
   let body: string;
-  if (failed) {
+  if (downloading && snapshot.status.phase === 'downloading') {
+    title = t('desktop:update.downloading', { version, percent: Math.floor(snapshot.status.percent) });
+    body = t('desktop:update.available.consentBody');
+  } else if (failed) {
     title = t('desktop:update.failed.title');
-    body = t('desktop:update.failed.body', { version });
+    body = t(consentFlow ? 'desktop:update.failed.consentBody' : 'desktop:update.failed.body', { version });
   } else if (canRestart) {
     title = t('desktop:update.ready.title');
     body = t('desktop:update.ready.body', { version });
   } else {
     title = t('desktop:update.available.title', { version });
-    body = currentVersion
+    body = consentFlow ? t('desktop:update.available.consentBody') : currentVersion
       ? t('desktop:update.available.bodyWithCurrent', { currentVersion })
       : t('desktop:update.available.body');
   }
@@ -92,7 +98,7 @@ export function UpdateToast() {
             <p className="text-xs text-txt-secondary mt-1 leading-relaxed">{body}</p>
           </div>
 
-          <button
+          {!downloading && <button
             onClick={handleLater}
             className="shrink-0 -mt-1 -mr-1 p-1.5 rounded-lg text-txt-tertiary hover:text-txt-secondary hover:bg-white/[0.06] transition-colors"
             aria-label={t('desktop:update.dismiss')}
@@ -100,31 +106,40 @@ export function UpdateToast() {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
-          </button>
+          </button>}
         </div>
 
+        {downloading && snapshot.status.phase === 'downloading' && (
+          <div className="mt-3 h-1 rounded-full bg-white/[0.06] overflow-hidden" role="progressbar" aria-valuenow={snapshot.status.percent} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full bg-accent-primary transition-[width] duration-300" style={{ width: `${snapshot.status.percent}%` }} />
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-3.5 pl-11">
-          {canRestart ? (
+          {downloading ? (
+            <button onClick={cancelDownload} className="px-3 py-1.5 text-xs font-medium rounded-lg text-txt-primary hover:bg-white/[0.06] transition-colors">
+              {t('common:actions.cancel')}
+            </button>
+          ) : canRestart ? (
             <button
               onClick={install}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-primary hover:bg-accent-primary/80 text-white transition-colors"
             >
-              {t('desktop:update.restartNow')}
+              {t(consentFlow ? 'desktop:update.installAndRestart' : 'desktop:update.restartNow')}
             </button>
           ) : (
             <button
-              onClick={openDownloadPage}
+              onClick={failed ? openDownloadPage : download}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-primary hover:bg-accent-primary/80 text-white transition-colors"
             >
               {t('desktop:update.download')}
             </button>
           )}
-          <button
+          {!downloading && <button
             onClick={handleLater}
             className="px-3 py-1.5 text-xs font-medium rounded-lg text-txt-secondary hover:text-txt-primary hover:bg-white/[0.06] transition-colors"
           >
             {t('desktop:update.later')}
-          </button>
+          </button>}
         </div>
       </div>
     </div>

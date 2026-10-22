@@ -36,6 +36,8 @@ export interface UpdateStoreState {
   initialize: () => () => void;
   dismiss: () => void;
   install: () => void;
+  download: () => void;
+  cancelDownload: () => void;
   openDownloadPage: () => void;
   checkNow: () => void;
 }
@@ -198,7 +200,28 @@ export const useUpdateStore = create<UpdateStoreState>((set, get) => ({
   },
 
   install: () => {
-    window.backspace?.installUpdate();
+    const snapshot = get().snapshot;
+    if (!canRestartToInstall(snapshot) || snapshot?.status.phase !== 'ready') return;
+    const api = window.backspace;
+    const version = snapshot.status.version;
+    if (api?.downloadUpdate) {
+      // Keep the audio runtime out of the update prompt's startup imports.
+      void import('./voiceStore').then(({ isInVoiceRoom, useVoiceStore }) => {
+        api.installUpdate(version, isInVoiceRoom(useVoiceStore.getState()));
+      }).catch(() => api.installUpdate(version, true));
+    } else api?.installUpdate();
+  },
+
+  download: () => {
+    const snapshot = get().snapshot;
+    if (snapshot?.capability === 'auto' && snapshot.status.phase === 'available' && window.backspace?.downloadUpdate) {
+      window.backspace.downloadUpdate(snapshot.status.version);
+    } else get().openDownloadPage();
+  },
+
+  cancelDownload: () => {
+    const status = get().snapshot?.status;
+    if (status?.phase === 'downloading') window.backspace?.cancelUpdateDownload?.(status.version);
   },
 
   openDownloadPage: () => {
@@ -209,7 +232,7 @@ export const useUpdateStore = create<UpdateStoreState>((set, get) => ({
     }
     // Older host with no dedicated channel. The renderer's window.open is
     // intercepted by setWindowOpenHandler and routed to the default browser.
-    window.open('https://github.com/TheZwiss/backspace/releases/latest', '_blank', 'noopener');
+    window.open('https://github.com/lorxray/backspace-revork/releases/latest', '_blank', 'noopener');
   },
 
   checkNow: () => {

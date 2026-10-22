@@ -4,7 +4,8 @@
     "dismiss": "忽略此更新",
     "failed": {
       "title": "无法安装更新",
-      "body": "Backspace {{version}} 已下载，但安装失败。您可以手动进行安装。"
+      "body": "Backspace {{version}} 已下载，但安装失败。您可以手动进行安装。",
+      "consentBody": "无法更新 Backspace {{version}}。请在桌面设置中重试或手动下载。"
     },
     "ready": {
       "title": "更新已就绪",
@@ -13,10 +14,13 @@
     "available": {
       "title": "Backspace {{version}} 现已可用",
       "body": "当前构建版本无法自动更新，请下载新版本以进行升级。",
-      "bodyWithCurrent": "您当前使用的是 {{currentVersion}}。当前构建版本无法自动更新，请下载新版本以进行升级。"
+      "bodyWithCurrent": "您当前使用的是 {{currentVersion}}。当前构建版本无法自动更新，请下载新版本以进行升级。",
+      "consentBody": "下载此更新？安装时需要单独确认。"
     },
     "restartNow": "立即重启",
     "download": "下载",
-    "later": "稍后"
+    "later": "稍后",
+    "installAndRestart": "安装并重启",
+    "downloading": "正在下载 Backspace {{version}}：{{percent}}%"
   }
 }

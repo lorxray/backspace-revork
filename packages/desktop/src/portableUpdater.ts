@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createHash, randomUUID } from 'crypto';
-import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater } from './desktopUpdates';
+import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater, isNewerDesktopVersion } from './desktopUpdates';
 import { fileSha256, launchPortableReplacement, type PortableInstall } from './portableUpdateInstaller';
 
 interface ReleaseAsset { name: string; browser_download_url: string; size: number; digest?: string | null }
@@ -48,31 +48,70 @@ export interface PortableUpdaterOptions {
 }
 
 export class PortableDesktopUpdater extends ManualDesktopUpdater {
-  override autoDownload = true;
-  override autoInstallOnAppQuit = true;
+  override autoDownload = false;
+  override autoInstallOnAppQuit = false;
   private ready: { file: string; version: string; sha256: string } | null = null;
+  private available: { release: unknown; version: string } | null = null;
+  private download: Promise<void> | null = null;
+  private controller: AbortController | null = null;
+  private restored: Promise<void> | null = null;
   installing = false;
 
   constructor(private readonly options: PortableUpdaterOptions) { super(options.currentVersion, options.request); }
 
   get hasReadyUpdate(): boolean { return this.ready !== null; }
 
-  override checkForUpdates(): Promise<void> {
-    return this.installing ? Promise.resolve() : super.checkForUpdates();
+  override async checkForUpdates(): Promise<void> {
+    if (this.installing || this.download) return;
+    this.restored ??= this.restoreReady();
+    await this.restored;
+    if (this.ready) {
+      this.emit('update-downloaded', { version: this.ready.version });
+      return;
+    }
+    return super.checkForUpdates();
   }
 
   protected override async handleNewRelease(value: unknown, version: string): Promise<void> {
-    const { release, asset } = portableReleaseAsset(value, version);
-    const previous = this.ready;
-    const savedHash = previous ? await fileSha256(previous.file).catch(() => null) : null;
-    if (previous?.version === version && savedHash === previous.sha256) {
-      this.emit('update-downloaded', { version });
-      return;
-    }
-    this.ready = null;
-    if (previous) await fs.promises.rm(previous.file, { force: true }).catch(() => {});
+    portableReleaseAsset(value, version);
+    this.available = { release: value, version };
     this.emit('update-available', { version });
-    if (!this.autoDownload) return;
+  }
+
+  private async restoreReady(): Promise<void> {
+    try {
+      const saved = JSON.parse(await fs.promises.readFile(path.join(this.options.cacheDirectory, 'ready-update.json'), 'utf8')) as Record<string, unknown>;
+      if (typeof saved.file !== 'string' || !/^\d+\.\d+\.\d+-[a-f0-9-]{36}\.exe$/.test(saved.file)
+        || typeof saved.version !== 'string' || !saved.file.startsWith(`${saved.version}-`)
+        || typeof saved.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(saved.sha256)
+        || !isNewerDesktopVersion(saved.version, this.currentVersion)) return;
+      const file = path.join(this.options.cacheDirectory, saved.file);
+      if (!(await fs.promises.lstat(file)).isFile() || await fileSha256(file) !== saved.sha256) return;
+      await verifyWindowsExecutable(file);
+      this.ready = { file, version: saved.version, sha256: saved.sha256 };
+    } catch { /* Missing/invalid saved files never authorize a download or install. */ }
+  }
+
+  downloadUpdate(version: string): Promise<void> {
+    if (this.download) return this.download;
+    if (this.installing || this.ready || !this.available || this.available.version !== version) return Promise.reject(new Error('Download consent does not match the offered version'));
+    const controller = new AbortController();
+    this.controller = controller;
+    this.download = this.performDownload(this.available.release, version, controller.signal)
+      .catch(error => {
+        if (controller.signal.aborted) this.emit('download-cancelled', { version });
+        else this.emit('error', error);
+        if (!controller.signal.aborted) throw error;
+      })
+      .finally(() => { this.download = null; this.controller = null; });
+    return this.download;
+  }
+
+  cancelDownload(): void { this.controller?.abort(); }
+
+  private async performDownload(value: unknown, version: string, signal: AbortSignal): Promise<void> {
+    const { release, asset } = portableReleaseAsset(value, version);
+    this.emit('download-started', { version });
     let expectedHash: string;
     if (asset.digest != null) {
       const match = /^sha256:([a-f0-9]{64})$/.exec(asset.digest);
@@ -81,7 +120,7 @@ export class PortableDesktopUpdater extends ManualDesktopUpdater {
     } else {
       const sums = release.assets.find(item => item.name === 'SHA256SUMS.txt');
       if (!sums || !Number.isSafeInteger(sums.size) || sums.size < 1 || sums.size > 65536) throw new Error('Portable update has no SHA-256 checksum');
-      const response = await this.request(assetUrl(release, sums), { signal: AbortSignal.timeout(15000) });
+      const response = await this.request(assetUrl(release, sums), { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
       if (!response.ok) throw new Error(`Update checksum download failed (HTTP ${response.status})`);
       const body = await response.arrayBuffer();
       if (body.byteLength > 65536) throw new Error('Update checksum file is too large');
@@ -97,17 +136,24 @@ export class PortableDesktopUpdater extends ManualDesktopUpdater {
     }
     const part = path.join(this.options.cacheDirectory, `${version}-${randomUUID()}.part`);
     const destination = part.slice(0, -5) + '.exe';
+    const manifest = path.join(this.options.cacheDirectory, 'ready-update.json');
+    let manifestWritten = false;
     try {
-      const response = await this.request(assetUrl(release, asset), { signal: AbortSignal.timeout(10 * 60 * 1000) });
+      signal.throwIfAborted();
+      const response = await this.request(assetUrl(release, asset), { signal: AbortSignal.any([signal, AbortSignal.timeout(10 * 60 * 1000)]) });
       if (!response.ok || !response.body) throw new Error(`Portable download failed (HTTP ${response.status})`);
       const file = await fs.promises.open(part, 'wx', 0o600);
       const reader = response.body.getReader();
+      const abortReader = () => { void reader.cancel().catch(() => {}); };
+      signal.addEventListener('abort', abortReader, { once: true });
       const hash = createHash('sha256');
       let bytes = 0;
       const started = Date.now();
       try {
         while (true) {
+          signal.throwIfAborted();
           const { done, value: chunk } = await reader.read();
+          signal.throwIfAborted();
           if (done) break;
           bytes += chunk.byteLength;
           if (bytes > asset.size) throw new Error('Portable download exceeds release size');
@@ -123,39 +169,49 @@ export class PortableDesktopUpdater extends ManualDesktopUpdater {
         if (bytes !== asset.size || hash.digest('hex') !== expectedHash) throw new Error('Portable download checksum or size mismatch');
         await file.sync();
       } finally {
+        signal.removeEventListener('abort', abortReader);
         await file.close();
         await reader.cancel().catch(() => {});
       }
       if (await fileSha256(part) !== expectedHash) throw new Error('Saved portable checksum mismatch');
       await verifyWindowsExecutable(part);
+      signal.throwIfAborted();
       await fs.promises.rename(part, destination);
+      signal.throwIfAborted();
+      const metadata = { file: path.basename(destination), version, sha256: expectedHash };
+      await fs.promises.writeFile(`${manifest}.tmp`, JSON.stringify(metadata), 'utf8');
+      signal.throwIfAborted();
+      await fs.promises.rename(`${manifest}.tmp`, manifest);
+      manifestWritten = true;
+      signal.throwIfAborted();
       this.ready = { file: destination, version, sha256: expectedHash };
       this.emit('update-downloaded', { version });
     } catch (error) {
       await fs.promises.rm(part, { force: true }).catch(() => {});
+      await fs.promises.rm(destination, { force: true }).catch(() => {});
+      await fs.promises.rm(`${manifest}.tmp`, { force: true }).catch(() => {});
+      if (manifestWritten) await fs.promises.rm(manifest, { force: true }).catch(() => {});
       throw error;
     }
   }
 
-  override quitAndInstall(relaunch = true): void {
+  override quitAndInstall(version?: string): void {
     if (this.installing) return;
     if (!this.ready) throw new Error('No verified portable update is ready');
+    if (version !== this.ready.version) throw new Error('Install consent does not match the downloaded version');
     this.installing = true;
     const ready = this.ready;
     const install = this.options.install ?? launchPortableReplacement;
-    void install({ target: this.options.target, updateFile: ready.file, sha256: ready.sha256, cacheDirectory: this.options.cacheDirectory, relaunch })
+    void install({ target: this.options.target, updateFile: ready.file, sha256: ready.sha256, cacheDirectory: this.options.cacheDirectory, relaunch: true })
       .then(async () => {
         this.ready = null;
         await fs.promises.rm(ready.file, { force: true }).catch(() => {});
+        await fs.promises.rm(path.join(this.options.cacheDirectory, 'ready-update.json'), { force: true }).catch(() => {});
         this.options.quit();
       })
       .catch(error => {
         this.installing = false;
         this.emit('error', error);
-        if (!relaunch) {
-          this.autoInstallOnAppQuit = false;
-          this.options.quit();
-        }
       });
   }
 }

@@ -4,7 +4,8 @@
     "dismiss": "Dismiss this update",
     "failed": {
       "title": "Update could not be installed",
-      "body": "Backspace {{version}} downloaded, but installing it failed. You can install it by hand instead."
+      "body": "Backspace {{version}} downloaded, but installing it failed. You can install it by hand instead.",
+      "consentBody": "Updating Backspace {{version}} failed. You can retry from Settings, Desktop, or download it manually."
     },
     "ready": {
       "title": "Update ready",
@@ -13,10 +14,13 @@
     "available": {
       "title": "Backspace {{version}} is available",
       "body": "This build cannot update itself, so download the new version to move up.",
-      "bodyWithCurrent": "You are on {{currentVersion}}. This build cannot update itself, so download the new version to move up."
+      "bodyWithCurrent": "You are on {{currentVersion}}. This build cannot update itself, so download the new version to move up.",
+      "consentBody": "Download this update? Installation will require separate confirmation."
     },
     "restartNow": "Restart now",
     "download": "Download",
-    "later": "Later"
+    "later": "Later",
+    "installAndRestart": "Install and restart",
+    "downloading": "Downloading Backspace {{version}}: {{percent}}%"
   }
 }

@@ -55,8 +55,8 @@ export function loadDismissedVersion(filePath?: string): string | null {
   }
 }
 
-export function setDismissedVersion(version: string, filePath?: string): void {
-  const trimmed = version.trim().slice(0, MAX_VERSION_LENGTH);
+export function setDismissedVersion(version: string | null, filePath?: string): void {
+  const trimmed = version?.trim().slice(0, MAX_VERSION_LENGTH) ?? null;
   if (trimmed === '') return;
   try {
     fs.writeFileSync(

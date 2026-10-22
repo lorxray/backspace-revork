@@ -15,6 +15,7 @@ export type UpdateState =
   | 'idle'
   | 'checking'
   | 'downloading'
+  | 'available'
   // An update exists but this build cannot install it in place (an ad-hoc
   // signed macOS build, where Squirrel.Mac can never satisfy the running app's
   // cdhash-literal designated requirement). The only useful action is a manual
@@ -105,6 +106,7 @@ interface MenuActions {
   onChangeInstance: () => void;
   onCheckForUpdates: () => void;
   onRestartToInstall: () => void;
+  onDownloadUpdate: () => void;
   // Manual-download path: opens the releases page for builds that cannot
   // install their own updates.
   onOpenReleases: () => void;
@@ -128,6 +130,7 @@ function checkForUpdatesItem(
       return { id: 'check-for-updates', label: t('update.downloading'), enabled: false };
     case 'downloaded':
       return { id: 'check-for-updates', label: t('update.ready'), enabled: false };
+    case 'available':
     case 'available-manual':
       return { id: 'check-for-updates', label: t('update.available'), enabled: false };
     case 'error':
@@ -158,14 +161,14 @@ function updateActionItem(
       click: actions?.onRestartToInstall,
     };
   }
-  if (state.updateState === 'available-manual') {
+  if (state.updateState === 'available-manual' || state.updateState === 'available') {
     return {
       id: 'download-update',
       label: state.updateVersion
         ? translateDesktop(language, 'update.downloadVersion', { version: state.updateVersion })
         : translateDesktop(language, 'update.download'),
       enabled: true,
-      click: actions?.onOpenReleases,
+      click: state.updateState === 'available' ? actions?.onDownloadUpdate : actions?.onOpenReleases,
     };
   }
   return null;
@@ -364,6 +367,8 @@ let mainWindowRef: BrowserWindow | null = null;
 export interface RecoveryUpdater {
   checkForUpdates(): Promise<unknown>;
   quitAndInstall(): void;
+  downloadUpdate?(): Promise<unknown>;
+  cancelDownload?(): void;
 }
 let autoUpdaterRef: RecoveryUpdater | null = null;
 let onQuitRequestedCallback: (() => void) | null = null;
@@ -443,6 +448,8 @@ export type RecoveryAction =
   | 'reload'
   | 'check-update'
   | 'install-update'
+  | 'download-update'
+  | 'cancel-download'
   | 'change-instance'
   | 'open-releases'
   | 'quit';
@@ -451,6 +458,8 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set([
   'reload',
   'check-update',
   'install-update',
+  'download-update',
+  'cancel-download',
   'change-instance',
   'open-releases',
   'quit',
@@ -477,9 +486,17 @@ export function handleRecoveryAction(action: RecoveryAction): void {
       return;
     }
     case 'check-update': {
-      if (recoveryStore.get().updateState === 'external') return;
+      if (['external', 'downloading', 'downloaded'].includes(recoveryStore.get().updateState)) return;
       recoveryStore.update({ updateState: 'checking', lastCheckResult: null });
       autoUpdaterRef?.checkForUpdates().catch(() => { /* check-phase errors stay silent */ });
+      return;
+    }
+    case 'download-update': {
+      if (recoveryStore.get().updateState === 'available') void autoUpdaterRef?.downloadUpdate?.().catch(() => {});
+      return;
+    }
+    case 'cancel-download': {
+      if (recoveryStore.get().updateState === 'downloading') autoUpdaterRef?.cancelDownload?.();
       return;
     }
     case 'install-update': {

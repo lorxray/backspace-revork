@@ -377,7 +377,10 @@
       "download": "Herunterladen",
       "restart": "Neu starten",
       "manualNote": "Diese Version kann Updates nicht selbst installieren. Neue Versionen lädst du von GitHub herunter und ersetzt die App damit von Hand. Die Schritte für deine Plattform stehen in den Versionshinweisen.",
-      "externalNote": "Flatpak wendet Updates atomar außerhalb der App an. Nutze deine Softwareverwaltung oder den Befehl <code>flatpak update</code>, um Backspace zu aktualisieren."
+      "externalNote": "Flatpak wendet Updates atomar außerhalb der App an. Nutze deine Softwareverwaltung oder den Befehl <code>flatpak update</code>, um Backspace zu aktualisieren.",
+      "installAndRestart": "Installieren und neu starten",
+      "cancelDownload": "Download abbrechen",
+      "updateFailed": "Backspace {{version}} konnte nicht aktualisiert werden"
     },
     "instance": {
       "current": "Aktuell verbundene Instanz",

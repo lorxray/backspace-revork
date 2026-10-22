@@ -33,6 +33,7 @@ import { loadDismissedVersion, setDismissedVersion } from './updateDismissal';
 import { purgeUpdaterCache } from './updaterCache';
 import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater } from './desktopUpdates';
 import { PortableDesktopUpdater } from './portableUpdater';
+import { canDownloadUpdate, installWithConsent } from './updateConsent';
 import {
   UpdateStatusStore,
   RELEASES_URL,
@@ -821,32 +822,21 @@ function registerIpcHandlers(): void {
   });
 
   // Auto-update IPC
-  ipcMain.on('install-update', () => {
-    const store = getUpdateStore();
-    const snapshot = store.get();
+  ipcMain.on('install-update', (_event, payload?: { version?: unknown; callActive?: unknown }) => {
+    const snapshot = getUpdateStore().get();
+    const version = typeof payload?.version === 'string' ? payload.version : statusVersion(snapshot.status);
+    if (version) void requestUpdateInstallation(version, payload?.callActive !== false);
+  });
 
-    // A build that cannot install in place has no in-place install to run. Send
-    // the user to the download instead of calling a method that returns without
-    // doing anything, which is the defect this whole path exists to remove.
-    if (snapshot.capability === 'external') return;
-    if (snapshot.capability === 'manual') {
-      void shell.openExternal(RELEASES_URL);
-      return;
-    }
-    if (snapshot.status.phase !== 'ready') return;
+  ipcMain.on('download-update', (_event, payload?: { version?: unknown }) => {
+    if (canDownloadUpdate(getUpdateStore().get(), payload?.version)) startUpdateDownload?.(payload.version);
+  });
+  ipcMain.on('cancel-update-download', (_event, payload?: { version?: unknown }) => {
+    const status = getUpdateStore().get().status;
+    if (status.phase === 'downloading' && status.version === payload?.version) cancelUpdateDownload?.();
+  });
 
-    try {
-      if (!activeUpdater) throw new Error('Updater has not initialized');
-      activeUpdater.quitAndInstall();
-    } catch {
-      store.setStatus({
-        phase: 'failed',
-        version: statusVersion(snapshot.status),
-        message: 'The updater is not available in this build.',
-      });
-      return;
-    }
-
+  const installWatchdog = () => {
     // If the install started, the app is gone before this fires. If it did not,
     // the user is still looking at a Restart button that appears to have done
     // nothing, and now the app says so instead of leaving them guessing.
@@ -859,7 +849,8 @@ function registerIpcHandlers(): void {
         message: 'Restarting to install the update did not start.',
       });
     }, INSTALL_WATCHDOG_MS);
-  });
+  };
+  startInstallWatchdog = installWatchdog;
 
   ipcMain.on('check-for-updates', () => {
     if (getUpdateCapability() === 'external') return;
@@ -889,7 +880,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   // Screen share picker coordination (used by setDisplayMediaRequestHandler)
-  ipcMain.on('screen-share-selected', (_event, _sourceId: string | null, _shareAudio?: boolean) => {
+  ipcMain.on('screen-share-selected', () => {
     // Handled via ipcMain.once in the display media handler — this is just
     // a safety net to prevent unhandled-message warnings
   });
@@ -1126,10 +1117,7 @@ function getUpdateStore(): UpdateStatusStore {
  * install" when the build physically cannot install is the same lie as the dead
  * Restart button, just delivered by the OS instead of the app.
  */
-function notifyAboutUpdate(
-  snapshot: UpdateSnapshot,
-  updater: { quitAndInstall: () => void },
-): void {
+function notifyAboutUpdate(snapshot: UpdateSnapshot): void {
   if (!shouldPromptForUpdate(snapshot)) return;
   // A focused user can see the in-app toast. Notifying as well is noise.
   if (mainWindow?.isFocused()) return;
@@ -1140,20 +1128,45 @@ function notifyAboutUpdate(
   if (snapshot.status.phase === 'ready' && snapshot.capability === 'auto') {
     showNotification(
       'Backspace update ready',
-      `Click to restart and install version ${version}.`,
-      () => updater.quitAndInstall(),
+      `Open Backspace to choose when to install version ${version}.`,
+      () => { mainWindow?.show(); mainWindow?.focus(); },
     );
     return;
   }
 
   showNotification(
     `Backspace ${version} is available`,
-    'Click to open the download page.',
-    () => { void shell.openExternal(RELEASES_URL); },
+    'Open Backspace to choose whether to download the update.',
+    () => { mainWindow?.show(); mainWindow?.focus(); },
   );
 }
 
 let activeUpdater: RecoveryUpdater | null = null;
+let startUpdateDownload: ((version: string) => void) | null = null;
+let cancelUpdateDownload: (() => void) | null = null;
+let applyReadyUpdate: ((version: string) => void) | null = null;
+let startInstallWatchdog: (() => void) | null = null;
+let installPromptOpen = false;
+
+async function requestUpdateInstallation(version: string, warnAboutCall: boolean): Promise<void> {
+  if (installPromptOpen || !applyReadyUpdate) return;
+  installPromptOpen = true;
+  try {
+    await installWithConsent(() => getUpdateStore().get(), version, warnAboutCall, async () => {
+      const language = getDesktopLanguage();
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning', title: translateDesktop(language, 'update.confirmTitle'),
+        message: translateDesktop(language, 'update.confirmCall'),
+        buttons: [translateDesktop(language, 'update.cancel'), translateDesktop(language, 'update.restartToInstall')],
+        defaultId: 0, cancelId: 0, noLink: true,
+      };
+      const result = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+      return result.response === 1;
+    }, confirmed => { applyReadyUpdate!(confirmed); startInstallWatchdog?.(); });
+  } catch (error) {
+    getUpdateStore().setStatus({ phase: 'failed', version, message: String(error) });
+  } finally { installPromptOpen = false; }
+}
 
 function initAutoUpdater(): void {
   const capability = getUpdateCapability();
@@ -1175,25 +1188,15 @@ function initAutoUpdater(): void {
     if (capability === 'auto' && !portableTarget) autoUpdater.setFeedURL(DESKTOP_UPDATE_FEED);
     console.log(`[update] repository=${DESKTOP_UPDATE_FEED.owner}/${DESKTOP_UPDATE_FEED.repo} capability=${capability}`);
 
-    // A build that cannot install its own updates must not download them.
-    //
-    // With autoDownload on, an ad-hoc signed macOS build pulls the full release
-    // archive, hands it to Squirrel.Mac, and Squirrel rejects it because the
-    // running app's designated requirement is a literal cdhash that no other
-    // build can satisfy. The archive then sits on disk forever (228 MB measured
-    // on a real machine, since it is stored twice) and the whole cycle repeats
-    // on the next check. Turning the download off removes the wasted transfer,
-    // the wasted disk, and the spurious install error all at once.
-    autoUpdater.autoDownload = capability === 'auto';
-    autoUpdater.autoInstallOnAppQuit = capability === 'auto';
+    // Checks read metadata only. Download and installation each require a click;
+    // an ordinary Quit must never apply a downloaded update.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
 
     if (capability === 'manual') {
       // Reclaim whatever earlier versions of this app already stranded.
       purgeUpdaterCache(process.resourcesPath);
     }
-
-    setAutoUpdater(autoUpdater);
-    activeUpdater = autoUpdater;
 
     let updateConfirmed = false;
     // The version the current check cycle is about. `download-progress` and the
@@ -1202,6 +1205,50 @@ function initAutoUpdater(): void {
     // Last percent pushed to the renderer. download-progress fires per chunk;
     // only whole-percent changes are worth an IPC message.
     let lastPercent = -1;
+    let cancellationToken: { cancel(): void } | undefined;
+    const checkForUpdates = async () => {
+      if (store.get().status.phase === 'downloading' || store.get().status.phase === 'ready') return;
+      const result = await autoUpdater.checkForUpdates();
+      cancellationToken = result?.cancellationToken;
+    };
+    applyReadyUpdate = version => {
+      updateConfirmed = true;
+      pendingVersion = version;
+      if (autoUpdater instanceof PortableDesktopUpdater) autoUpdater.quitAndInstall(version);
+      else autoUpdater.quitAndInstall();
+    };
+    startUpdateDownload = version => {
+      if (!canDownloadUpdate(store.get(), version)) return;
+      updateConfirmed = true;
+      pendingVersion = version;
+      store.setDismissedVersion(null);
+      setDismissedVersion(null);
+      recoveryStore.update({ updateState: 'downloading', updateVersion: version });
+      store.setStatus({ phase: 'downloading', version, percent: 0, bytesPerSecond: 0 });
+      const pending = autoUpdater instanceof PortableDesktopUpdater ? autoUpdater.downloadUpdate(version) : autoUpdater.downloadUpdate(cancellationToken);
+      void pending.catch(() => {});
+    };
+    cancelUpdateDownload = () => {
+      if (autoUpdater instanceof PortableDesktopUpdater) autoUpdater.cancelDownload();
+      else if (cancellationToken) {
+        cancellationToken.cancel();
+        // A cancelled electron-updater token cannot be reused on a later click.
+        cancellationToken = Reflect.construct(cancellationToken.constructor, []) as { cancel(): void };
+      }
+    };
+    activeUpdater = {
+      checkForUpdates,
+      quitAndInstall: () => {
+        const version = statusVersion(store.get().status);
+        if (version) void requestUpdateInstallation(version, true);
+      },
+      downloadUpdate: async () => {
+        const status = store.get().status;
+        if (status.phase === 'available') startUpdateDownload?.(status.version);
+      },
+      cancelDownload: () => cancelUpdateDownload?.(),
+    };
+    setAutoUpdater(activeUpdater);
 
     autoUpdater.on('checking-for-update', () => {
       recoveryStore.update({ updateState: 'checking', lastCheckResult: null });
@@ -1213,25 +1260,14 @@ function initAutoUpdater(): void {
     autoUpdater.on('update-available', (info: { version: string }) => {
       const version = info.version.slice(0, 32);
       pendingVersion = version;
-      // Only an auto-capable build is about to attempt anything, so only there
-      // can a later error be an install failure worth reporting.
-      updateConfirmed = capability === 'auto';
-
-      if (capability === 'auto') {
-        recoveryStore.update({ updateState: 'downloading', updateVersion: version });
-        store.setStatus({ phase: 'downloading', version, percent: 0, bytesPerSecond: 0 });
-      } else {
-        recoveryStore.update({ updateState: 'available-manual', updateVersion: version });
-        store.setStatus({ phase: 'available', version });
-      }
+      // Metadata checks do not authorize a binary download.
+      updateConfirmed = false;
+      recoveryStore.update({ updateState: capability === 'auto' ? 'available' : 'available-manual', updateVersion: version });
+      store.setStatus({ phase: 'available', version });
 
       mainWindow?.webContents.send('update-available', { version });
 
-      // In manual mode this is the end of the line, so this is the moment to
-      // tell the user. In auto mode the notification waits for the download.
-      if (capability === 'manual') {
-        notifyAboutUpdate(store.get(), autoUpdater);
-      }
+      notifyAboutUpdate(store.get());
     });
 
     autoUpdater.on('update-not-available', () => {
@@ -1268,7 +1304,7 @@ function initAutoUpdater(): void {
       recoveryStore.update({ updateState: 'downloaded', updateVersion: version });
       store.setStatus({ phase: 'ready', version });
       mainWindow?.webContents.send('update-downloaded', { version });
-      notifyAboutUpdate(store.get(), autoUpdater);
+      notifyAboutUpdate(store.get());
     });
 
     autoUpdater.on('error', (err: unknown) => {
@@ -1289,7 +1325,7 @@ function initAutoUpdater(): void {
         // An update was actually being applied. This is news.
         store.setStatus({ phase: 'failed', version: pendingVersion, message });
         mainWindow?.webContents.send('update-error', { message, releaseUrl: RELEASES_URL });
-        notifyAboutUpdate(store.get(), autoUpdater);
+        notifyAboutUpdate(store.get());
         return;
       }
 
@@ -1301,26 +1337,25 @@ function initAutoUpdater(): void {
       store.setStatus({ phase: 'failed', version: null, message });
     });
 
-    if (autoUpdater instanceof PortableDesktopUpdater) {
-      app.on('before-quit', event => {
-        if (autoUpdater.autoInstallOnAppQuit && autoUpdater.hasReadyUpdate && !autoUpdater.installing) {
-          event.preventDefault();
-          // A regular Exit applies the update without reopening the app.
-          autoUpdater.quitAndInstall(false);
-        }
-      });
-    }
+    const cancelled = () => {
+      if (!pendingVersion) return;
+      updateConfirmed = false;
+      recoveryStore.update({ updateState: 'available', updateVersion: pendingVersion });
+      store.setDismissedVersion(pendingVersion);
+      setDismissedVersion(pendingVersion);
+      store.setStatus({ phase: 'available', version: pendingVersion });
+    };
+    autoUpdater.on('download-cancelled', cancelled);
+    autoUpdater.on('update-cancelled', cancelled);
 
     // Initial check with 10s delay (existing behavior)
     setTimeout(() => {
-      updateConfirmed = false;
-      autoUpdater.checkForUpdates().catch(() => {});
+      activeUpdater?.checkForUpdates().catch(() => {});
     }, 10_000);
 
     // Periodic check every 4 hours (existing behavior)
     setInterval(() => {
-      updateConfirmed = false;
-      autoUpdater.checkForUpdates().catch(() => {});
+      activeUpdater?.checkForUpdates().catch(() => {});
     }, 4 * 60 * 60 * 1000);
   } catch {
     // Auto-updater unavailable — recovery surface still functions, just
@@ -1584,6 +1619,7 @@ if (!gotTheLock) {
       onChangeInstance: () => handleRecoveryAction('change-instance'),
       onCheckForUpdates: () => handleRecoveryAction('check-update'),
       onRestartToInstall: () => handleRecoveryAction('install-update'),
+      onDownloadUpdate: () => handleRecoveryAction('download-update'),
       onOpenReleases: () => handleRecoveryAction('open-releases'),
       onOpenSource: () => openSourceCode(),
       onQuit: () => requestQuit(),
