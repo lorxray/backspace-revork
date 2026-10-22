@@ -323,6 +323,12 @@ Three independent muting mechanisms:
 - Client toggles in `voiceStore`
 - Broadcasts via `voice_status` WS event. Every control goes through `handleMuteAction` / `handleDeafenAction` (`utils/voiceActions.ts`): the desktop control bar, the channel sidebar, and through `toggleMuteFromControl` / `toggleDeafenFromControl` (which read the space restrictions with `getSpaceEnforcementState`) the mobile call screen, the mobile mini bar and the keybinds. The store's `toggleMic` / `toggleDeafen` alone change only local state
 - If also space-muted, remains effectively muted
+- Self-deafen (the headphones button) silences participant microphones while
+  watched screen-share audio keeps its separate mute and volume controls.
+  `GlobalAudioRenderer` applies self-deafen only to voice gains; moderator
+  space deafen continues to silence both voice and screen-share audio. Stream
+  attenuation responds only to audible participant voices, so locally muted
+  participants and voice volumes of zero do not duck a watched stream.
 
 ### 2. Space Mute/Deafen (moderator, persisted)
 - Requires MUTE_MEMBERS / DEAFEN_MEMBERS permission

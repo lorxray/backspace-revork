@@ -80,14 +80,19 @@ export function GlobalAudioRenderer() {
   const streamAttenuationStrength = useVoiceStore((s) => s.streamAttenuationStrength);
   const speakingParticipantIds = useVoiceStore((s) => s.speakingParticipantIds);
 
-  // Compute effective deafened: user intent || server enforcement
+  // Self-deafen silences voice chat. Watched streams have their own audio
+  // controls; a moderator's space deafen still applies to both sources.
   const spaceId = useSpaceStore((s) => currentVoiceChannelId ? s.channelToSpaceMap.get(currentVoiceChannelId) : null);
   const myOriginId = currentVoiceChannelId ? getMyUserIdForOrigin(getChannelOrigin(currentVoiceChannelId)) : undefined;
   const spaceKey = (spaceId && myOriginId) ? `${spaceId}:${myOriginId}` : '';
-  const isDeafened = isDeafenedIntent || spaceDeafenedUserIds.has(spaceKey);
+  const isSpaceDeafened = spaceDeafenedUserIds.has(spaceKey);
+  const isVoiceDeafened = isDeafenedIntent || isSpaceDeafened;
 
   // Determine if someone is currently speaking (for stream attenuation)
-  const someoneIsSpeaking = participants.some((p) => !p.isLocal && speakingParticipantIds.has(p.identity));
+  const someoneIsSpeaking = !isVoiceDeafened && participants.some((p) => !p.isLocal
+    && !(participantMutes.get(p.userId) ?? false)
+    && (participantVolumes.get(p.userId) ?? 100) > 0
+    && speakingParticipantIds.has(p.identity));
 
   // Only render audio for remote participants
   const remoteParticipants = participants.filter((p) => !p.isLocal);
@@ -108,7 +113,7 @@ export function GlobalAudioRenderer() {
                 track={p.audioTrack}
                 globalVolume={outputVolume}
                 perSourceVolume={micVolume}
-                isDeafened={isDeafened}
+                isDeafened={isVoiceDeafened}
                 isMuted={isMicMuted}
                 attenuate={false}
                 someoneIsSpeaking={false}
@@ -123,7 +128,7 @@ export function GlobalAudioRenderer() {
                 track={p.screenAudioTrack}
                 globalVolume={outputVolume}
                 perSourceVolume={streamVol}
-                isDeafened={isDeafened}
+                isDeafened={isSpaceDeafened}
                 isMuted={isStreamMuted}
                 attenuate={true}
                 someoneIsSpeaking={someoneIsSpeaking}
