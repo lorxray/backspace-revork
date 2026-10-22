@@ -1,12 +1,13 @@
 import type { UpdateCapability } from './updateCapability';
 import { isVersionDismissed } from './updateDismissal';
+import { DESKTOP_RELEASES_URL } from './desktopUpdates';
 
 /**
  * The one place that says where a user is sent to fetch a build by hand.
  * Shared by the main process notification, the recovery surface, and the
  * renderer toast so the three cannot drift apart.
  */
-export const RELEASES_URL = 'https://github.com/lorxray/backspace-revork/releases/latest';
+export const RELEASES_URL = DESKTOP_RELEASES_URL;
 
 /**
  * Where the updater currently is.

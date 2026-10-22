@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { spawnSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 /**
  * Whether this build can install its own updates.
@@ -157,6 +158,15 @@ export function getUpdateCapability(): UpdateCapability {
 
   // A dev build has no update feed and must never offer to install anything.
   if (!app.isPackaged) {
+    cached = 'manual';
+    return cached;
+  }
+
+  // A portable EXE or its extracted application is not an NSIS installation.
+  // It has no installer metadata, and must offer the repository download page.
+  if (process.platform === 'win32' && (process.env.PORTABLE_EXECUTABLE_FILE
+    || process.env.PORTABLE_EXECUTABLE_DIR
+    || !fs.existsSync(path.join(process.resourcesPath ?? '', 'app-update.yml')))) {
     cached = 'manual';
     return cached;
   }

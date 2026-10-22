@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { app } from 'electron';
+import fs from 'fs';
 import {
   classifyDesignatedRequirement,
   macAppBundlePath,
@@ -13,6 +14,7 @@ import {
 vi.mock('electron', () => ({
   app: { isPackaged: true },
 }));
+vi.mock('fs', () => ({ default: { existsSync: vi.fn(() => true) } }));
 
 const mockedApp = app as unknown as { isPackaged: boolean };
 
@@ -131,6 +133,9 @@ describe('macAppBundlePath', () => {
 describe('getUpdateCapability', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.stubEnv('PORTABLE_EXECUTABLE_FILE', '');
+    vi.stubEnv('PORTABLE_EXECUTABLE_DIR', '');
+    vi.mocked(fs.existsSync).mockReturnValue(true);
     resetUpdateCapabilityForTest();
     mockedApp.isPackaged = true;
   });
@@ -152,6 +157,20 @@ describe('getUpdateCapability', () => {
   it('is auto on Windows, where NSIS applies unsigned updates', () => {
     withPlatform('win32', () => {
       expect(getUpdateCapability()).toBe('auto');
+    });
+  });
+
+  it.each(['PORTABLE_EXECUTABLE_FILE', 'PORTABLE_EXECUTABLE_DIR'])('is manual for a Windows portable with %s', (variable) => {
+    vi.stubEnv(variable, 'C:/Backspace');
+    withPlatform('win32', () => {
+      expect(getUpdateCapability()).toBe('manual');
+    });
+  });
+
+  it('is manual for the extracted Windows ZIP without installer metadata', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    withPlatform('win32', () => {
+      expect(getUpdateCapability()).toBe('manual');
     });
   });
 

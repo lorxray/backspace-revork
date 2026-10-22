@@ -31,6 +31,7 @@ import { ownAudioInSystemAudio } from './systemAudioCapability';
 import { createSystemAudioController, withSystemAudioSource, type PatchBayModule } from './systemAudio';
 import { loadDismissedVersion, setDismissedVersion } from './updateDismissal';
 import { purgeUpdaterCache } from './updaterCache';
+import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater } from './desktopUpdates';
 import {
   UpdateStatusStore,
   RELEASES_URL,
@@ -53,6 +54,7 @@ import {
   setInstanceLoader,
   enterRecoveryMode,
   type RecoveryState,
+  type RecoveryUpdater,
 } from './recovery';
 import { migrateUserData } from './userDataMigration';
 import { isNavigationAllowed } from './navigationPolicy';
@@ -859,12 +861,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.on('check-for-updates', () => {
     if (getUpdateCapability() === 'external') return;
-    try {
-      const { autoUpdater } = require('electron-updater');
-      autoUpdater.checkForUpdates().catch(() => {});
-    } catch {
-      // Auto-updater not available
-    }
+    activeUpdater?.checkForUpdates().catch(() => {});
   });
 
   ipcMain.handle('get-update-status', () => getUpdateStore().get());
@@ -1154,6 +1151,8 @@ function notifyAboutUpdate(
   );
 }
 
+let activeUpdater: RecoveryUpdater | null = null;
+
 function initAutoUpdater(): void {
   const capability = getUpdateCapability();
   const store = getUpdateStore();
@@ -1163,9 +1162,14 @@ function initAutoUpdater(): void {
     console.log('[update] capability=external (updates are managed by Flatpak)');
     return;
   }
+  if (!app.isPackaged) return;
 
   try {
-    const { autoUpdater } = require('electron-updater');
+    const autoUpdater = capability === 'manual'
+      ? new ManualDesktopUpdater(app.getVersion())
+      : require('electron-updater').autoUpdater;
+    if (capability === 'auto') autoUpdater.setFeedURL(DESKTOP_UPDATE_FEED);
+    console.log(`[update] repository=${DESKTOP_UPDATE_FEED.owner}/${DESKTOP_UPDATE_FEED.repo} capability=${capability}`);
 
     // A build that cannot install its own updates must not download them.
     //
@@ -1185,6 +1189,7 @@ function initAutoUpdater(): void {
     }
 
     setAutoUpdater(autoUpdater);
+    activeUpdater = autoUpdater;
 
     let updateConfirmed = false;
     // The version the current check cycle is about. `download-progress` and the

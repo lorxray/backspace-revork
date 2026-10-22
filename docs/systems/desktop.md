@@ -1531,11 +1531,24 @@ See `scripts/gen-icons.README.md` for the regeneration workflow and version-bump
 ```yaml
 publish:
   - provider: github
-    owner: TheZwiss
-    repo: backspace
+    owner: lorxray
+    repo: backspace-revork
 ```
 
-GitHub releases are the update source. The `electron-updater` library handles checking, downloading, and applying updates.
+Desktop updates and manual download links use `lorxray/backspace-revork`.
+Installer builds explicitly configure this GitHub provider in `main.ts` as
+well as in the packaging configuration. The `electron-updater` library handles
+checking, downloading, and applying installer updates when their release
+contains the generated update metadata.
+
+Windows portable EXEs and extracted ZIP builds have no NSIS update metadata.
+They use manual update capability and check the repository's public latest
+release API directly, accepting stable `v<version>` and
+`desktop-v<version>-revork.<number>` tags with matching desktop assets. A newer
+version offers the existing download action pointing to this repository's
+latest release. Checks never download or launch an installer for a portable.
+The settings button, recovery action and periodic check share this updater;
+network errors remain failures rather than being reported as up to date.
 
 ---
 

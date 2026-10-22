@@ -1,6 +1,5 @@
 import { app, shell } from 'electron';
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
-import type { AppUpdater } from 'electron-updater';
 import path from 'path';
 import { loadInstanceUrl, clearInstanceUrl, getPickerPath } from './instanceUrl';
 import { RELEASES_URL } from './updateStatus';
@@ -362,7 +361,11 @@ export function handleRendererReady(): void {
 // ---------------------------------------------------------------------------
 
 let mainWindowRef: BrowserWindow | null = null;
-let autoUpdaterRef: AppUpdater | null = null;
+export interface RecoveryUpdater {
+  checkForUpdates(): Promise<unknown>;
+  quitAndInstall(): void;
+}
+let autoUpdaterRef: RecoveryUpdater | null = null;
 let onQuitRequestedCallback: (() => void) | null = null;
 let instanceLoader: ((url: string | null) => void) | null = null;
 
@@ -381,7 +384,7 @@ export function setMainWindow(win: BrowserWindow | null): void {
   mainWindowRef = win;
 }
 
-export function setAutoUpdater(au: AppUpdater | null): void {
+export function setAutoUpdater(au: RecoveryUpdater | null): void {
   autoUpdaterRef = au;
 }
 
