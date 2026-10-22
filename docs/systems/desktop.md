@@ -1541,14 +1541,28 @@ well as in the packaging configuration. The `electron-updater` library handles
 checking, downloading, and applying installer updates when their release
 contains the generated update metadata.
 
-Windows portable EXEs and extracted ZIP builds have no NSIS update metadata.
-They use manual update capability and check the repository's public latest
-release API directly, accepting stable `v<version>` and
-`desktop-v<version>-revork.<number>` tags with matching desktop assets. A newer
-version offers the existing download action pointing to this repository's
-latest release. Checks never download or launch an installer for a portable.
-The settings button, recovery action and periodic check share this updater;
-network errors remain failures rather than being reported as up to date.
+Windows x64 portable EXEs check the public latest-release API directly,
+accepting stable `v<version>` and `desktop-v<version>-revork.<number>` tags.
+They download the matching portable asset in the background, verify its size,
+SHA-256 (GitHub's asset digest or the release's `SHA256SUMS.txt`) and Windows
+executable header, then offer **Restart to install**. A normal Exit also applies
+a ready update, without reopening the application. Downloads do not interrupt
+a call, and interrupted/invalid downloads never replace the current EXE.
+
+`PORTABLE_EXECUTABLE_FILE` identifies the outer portable launcher even if it
+has been renamed. A small bundled Windows helper acknowledges readiness before
+the app quits, waits for the original process and outer launcher to release the
+EXE, rechecks both files, and replaces it with `File.Replace`. It keeps one
+backup per portable path, and restores/restarts that backup if an explicitly
+restarted replacement immediately fails to launch. Helper paths are JSON data,
+not shell command text. The helper source is
+`resources/portable-update-helper.cs`; `buildPortableUpdaterHelper.cjs` compiles
+it with the Windows .NET Framework compiler during Windows packaging.
+
+Extracted ZIP builds have no outer portable launcher and continue to offer
+manual downloads. The settings button, recovery action and periodic check
+share the selected updater. Network errors remain failures rather than being
+reported as up to date. No instance/server update is required.
 
 ---
 

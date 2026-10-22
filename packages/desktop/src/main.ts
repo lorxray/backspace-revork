@@ -26,12 +26,13 @@ import {
   clearInstanceUrl,
   getPickerPath,
 } from './instanceUrl';
-import { getUpdateCapability, isSandboxed } from './updateCapability';
+import { getUpdateCapability, getPortableExecutable, isSandboxed } from './updateCapability';
 import { ownAudioInSystemAudio } from './systemAudioCapability';
 import { createSystemAudioController, withSystemAudioSource, type PatchBayModule } from './systemAudio';
 import { loadDismissedVersion, setDismissedVersion } from './updateDismissal';
 import { purgeUpdaterCache } from './updaterCache';
 import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater } from './desktopUpdates';
+import { PortableDesktopUpdater } from './portableUpdater';
 import {
   UpdateStatusStore,
   RELEASES_URL,
@@ -832,10 +833,11 @@ function registerIpcHandlers(): void {
       void shell.openExternal(RELEASES_URL);
       return;
     }
+    if (snapshot.status.phase !== 'ready') return;
 
     try {
-      const { autoUpdater } = require('electron-updater');
-      autoUpdater.quitAndInstall();
+      if (!activeUpdater) throw new Error('Updater has not initialized');
+      activeUpdater.quitAndInstall();
     } catch {
       store.setStatus({
         phase: 'failed',
@@ -1165,10 +1167,12 @@ function initAutoUpdater(): void {
   if (!app.isPackaged) return;
 
   try {
-    const autoUpdater = capability === 'manual'
-      ? new ManualDesktopUpdater(app.getVersion())
-      : require('electron-updater').autoUpdater;
-    if (capability === 'auto') autoUpdater.setFeedURL(DESKTOP_UPDATE_FEED);
+    const portableTarget = getPortableExecutable();
+    const autoUpdater = portableTarget
+      ? new PortableDesktopUpdater({ currentVersion: app.getVersion(), target: portableTarget,
+        cacheDirectory: path.join(app.getPath('userData'), 'updates/portable'), quit: requestQuit })
+      : capability === 'manual' ? new ManualDesktopUpdater(app.getVersion()) : require('electron-updater').autoUpdater;
+    if (capability === 'auto' && !portableTarget) autoUpdater.setFeedURL(DESKTOP_UPDATE_FEED);
     console.log(`[update] repository=${DESKTOP_UPDATE_FEED.owner}/${DESKTOP_UPDATE_FEED.repo} capability=${capability}`);
 
     // A build that cannot install its own updates must not download them.
@@ -1296,6 +1300,16 @@ function initAutoUpdater(): void {
       // is exactly the kind of noise this rewrite is removing.
       store.setStatus({ phase: 'failed', version: null, message });
     });
+
+    if (autoUpdater instanceof PortableDesktopUpdater) {
+      app.on('before-quit', event => {
+        if (autoUpdater.autoInstallOnAppQuit && autoUpdater.hasReadyUpdate && !autoUpdater.installing) {
+          event.preventDefault();
+          // A regular Exit applies the update without reopening the app.
+          autoUpdater.quitAndInstall(false);
+        }
+      });
+    }
 
     // Initial check with 10s delay (existing behavior)
     setTimeout(() => {

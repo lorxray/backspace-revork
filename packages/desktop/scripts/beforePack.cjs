@@ -4,7 +4,7 @@ const { buildWebClient, bundleDir, verifyBundle } = require('./webClientBundle.c
 
 let prepared = false;
 
-exports.default = function beforePack() {
+exports.default = function beforePack(context) {
   // electron-builder invokes this hook per architecture. One fresh source
   // build is enough for the process, but every target must pass validation.
   if (!prepared) {
@@ -12,4 +12,5 @@ exports.default = function beforePack() {
     prepared = true;
   }
   verifyBundle(bundleDir);
+  if (context.electronPlatformName === 'win32') require('./buildPortableUpdaterHelper.cjs').buildPortableUpdaterHelper();
 };

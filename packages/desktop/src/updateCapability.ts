@@ -134,6 +134,15 @@ function readDesignatedRequirement(bundlePath: string): string {
 
 let cached: UpdateCapability | null = null;
 
+/** Only a real x64 portable launcher exposes the original, replaceable EXE. */
+export function getPortableExecutable(): string | null {
+  const file = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (process.platform !== 'win32' || process.arch !== 'x64' || !file
+    || !path.isAbsolute(file) || path.extname(file).toLowerCase() !== '.exe'
+    || !fs.existsSync(file)) return null;
+  return file;
+}
+
 /**
  * Whether this build can install its own updates. Computed once, then cached.
  *
@@ -162,8 +171,12 @@ export function getUpdateCapability(): UpdateCapability {
     return cached;
   }
 
-  // A portable EXE or its extracted application is not an NSIS installation.
-  // It has no installer metadata, and must offer the repository download page.
+  if (getPortableExecutable()) {
+    cached = 'auto';
+    return cached;
+  }
+
+  // An extracted ZIP has no outer portable EXE to replace and no NSIS metadata.
   if (process.platform === 'win32' && (process.env.PORTABLE_EXECUTABLE_FILE
     || process.env.PORTABLE_EXECUTABLE_DIR
     || !fs.existsSync(path.join(process.resourcesPath ?? '', 'app-update.yml')))) {

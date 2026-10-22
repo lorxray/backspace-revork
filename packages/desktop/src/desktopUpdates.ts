@@ -50,7 +50,7 @@ export class ManualDesktopUpdater extends EventEmitter {
   autoInstallOnAppQuit = false;
   private pending: Promise<void> | null = null;
 
-  constructor(private readonly currentVersion: string, private readonly request: typeof fetch = fetch) {
+  constructor(protected readonly currentVersion: string, protected readonly request: typeof fetch = fetch) {
     super();
   }
 
@@ -69,12 +69,18 @@ export class ManualDesktopUpdater extends EventEmitter {
         redirect: 'error',
       });
       if (!response.ok) throw new Error(`Desktop release check failed (HTTP ${response.status})`);
-      const version = desktopReleaseVersion(await response.json());
-      this.emit(isNewerDesktopVersion(version, this.currentVersion) ? 'update-available' : 'update-not-available', { version });
+      const release: unknown = await response.json();
+      const version = desktopReleaseVersion(release);
+      if (isNewerDesktopVersion(version, this.currentVersion)) await this.handleNewRelease(release, version);
+      else this.emit('update-not-available', { version });
     } catch (error) {
       this.emit('error', error);
       throw error;
     }
+  }
+
+  protected async handleNewRelease(_release: unknown, version: string): Promise<void> {
+    this.emit('update-available', { version });
   }
 
   quitAndInstall(): void {

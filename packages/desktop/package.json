@@ -1,6 +1,6 @@
 {
   "name": "@backspace/desktop",
-  "version": "1.11.9",
+  "version": "1.11.10",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Backspace",
@@ -12,7 +12,7 @@
   "main": "dist/main.js",
   "desktopName": "io.github.TheZwiss.backspace.desktop",
   "scripts": {
-    "build:ts": "tsc && node scripts/buildMicrophoneGatePreload.cjs",
+    "build:ts": "tsc && node scripts/buildMicrophoneGatePreload.cjs && node scripts/buildPortableUpdaterHelper.cjs",
     "build:web-client": "node scripts/webClientBundle.cjs",
     "dev": "pnpm run build:ts && pnpm run build:web-client && electron .",
     "build": "pnpm run build:ts && electron-builder",

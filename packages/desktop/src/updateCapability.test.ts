@@ -5,6 +5,7 @@ import {
   classifyDesignatedRequirement,
   macAppBundlePath,
   getUpdateCapability,
+  getPortableExecutable,
   isSandboxed,
   resetUpdateCapabilityForTest,
 } from './updateCapability';
@@ -160,7 +161,15 @@ describe('getUpdateCapability', () => {
     });
   });
 
-  it.each(['PORTABLE_EXECUTABLE_FILE', 'PORTABLE_EXECUTABLE_DIR'])('is manual for a Windows portable with %s', (variable) => {
+  it('can update a Windows x64 portable using its original launcher path', () => {
+    vi.stubEnv('PORTABLE_EXECUTABLE_FILE', 'C:/Backspace/My client.exe');
+    withPlatform('win32', () => {
+      expect(getPortableExecutable()).toBe('C:/Backspace/My client.exe');
+      expect(getUpdateCapability()).toBe('auto');
+    });
+  });
+
+  it.each(['PORTABLE_EXECUTABLE_FILE', 'PORTABLE_EXECUTABLE_DIR'])('is manual without a valid portable EXE in %s', (variable) => {
     vi.stubEnv(variable, 'C:/Backspace');
     withPlatform('win32', () => {
       expect(getUpdateCapability()).toBe('manual');
