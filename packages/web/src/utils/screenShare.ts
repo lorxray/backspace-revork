@@ -1220,6 +1220,8 @@ interface EncoderStatsEntry extends RTCStats {
   encoderImplementation?: string;
 }
 
+const warnedSoftwareFallbackTracks = new WeakSet<MediaStreamTrack>();
+
 function normalizeVideoCodec(value: string | undefined): 'vp9' | 'h264' | 'vp8' | null {
   const normalized = value?.toLowerCase();
   if (normalized?.includes('vp9')) return 'vp9';
@@ -1253,7 +1255,9 @@ async function inspectPublishedEncoder(
     .find(p => p.source === Track.Source.ScreenShare);
   if (!currentPublication?.track || getMediaStreamTrack(currentPublication.track) !== mediaTrack
     || sender.track?.id !== expectedTrackId) return true;
-  logScreenShareEncoder(requestedCodec, mediaTrack, stats);
+  const localPublication = screenPub as LocalTrackPublication;
+  logScreenShareEncoder(requestedCodec, mediaTrack, stats,
+    localPublication.options?.screenShareEncoding?.maxBitrate ?? localPublication.options?.videoEncoding?.maxBitrate);
   const codecById = new Map<string, string>();
   const outbound: Array<{ codec: 'vp9' | 'h264' | 'vp8'; bytesSent: number; framesEncoded: number; encoderImpl: string | null }> = [];
   stats.forEach((report) => {
@@ -1290,11 +1294,14 @@ async function inspectPublishedEncoder(
     .map((entry) => entry.encoderImpl)
     .filter((value): value is string => value != null);
   if (requestedCodec === 'h264' && h264Implementations.some((value) => /openh264/i.test(value))) {
-    useUIStore.getState().addToast(
-      i18n.t('voice:streamSettings.softwareH264Fallback'),
-      'warning',
-      8000,
-    );
+    if (!warnedSoftwareFallbackTracks.has(mediaTrack)) {
+      warnedSoftwareFallbackTracks.add(mediaTrack);
+      useUIStore.getState().addToast(
+        i18n.t('voice:streamSettings.softwareH264Fallback'),
+        'warning',
+        8000,
+      );
+    }
     return true;
   }
 
@@ -1305,7 +1312,7 @@ async function inspectPublishedEncoder(
     || h264Implementations.length > 0;
 }
 
-const ENCODER_DETECTION_OFFSETS_MS = [0, 1000, 4000, 8000] as const;
+const ENCODER_DETECTION_OFFSETS_MS = [0, 1000, 4000, 8000, 15_000] as const;
 
 function scheduleEncoderDetection(
   room: Room,
@@ -1317,8 +1324,13 @@ function scheduleEncoderDetection(
   let attemptIndex = 0;
   const inspect = async (): Promise<void> => {
     if (task.cancelled) return;
+    const currentTrack = room.localParticipant.getTrackPublications()
+      .find(publication => publication.source === Track.Source.ScreenShare)?.track;
+    if (!currentTrack || !useVoiceStore.getState().isScreenSharing || getMediaStreamTrack(currentTrack)?.id !== expectedTrackId) return;
     try {
-      if (await inspectPublishedEncoder(room, requestedCodec, expectedTrackId)) return;
+      // Continue bounded startup snapshots after identifying the encoder so
+      // logs can show whether bandwidth limitation recovers after a few seconds.
+      await inspectPublishedEncoder(room, requestedCodec, expectedTrackId);
     } catch {
       // Non-critical — the connection inspector still exposes available stats.
     }

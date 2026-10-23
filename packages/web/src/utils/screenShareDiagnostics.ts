@@ -70,6 +70,12 @@ interface DiagnosticStatsEntry extends RTCStats {
   frameHeight?: number;
   framesPerSecond?: number;
   qualityLimitationReason?: string;
+  targetBitrate?: number;
+  state?: string;
+  nominated?: boolean;
+  selectedCandidatePairId?: string;
+  availableOutgoingBitrate?: number;
+  currentRoundTripTime?: number;
 }
 
 function diagnosticCodec(value: unknown): EncoderCodec | undefined {
@@ -122,15 +128,20 @@ export function logScreenShareEncoder(
   codec: 'h264' | 'vp9',
   track: MediaStreamTrack,
   stats: RTCStatsReport,
+  requestedMaxBitrate?: number,
 ): void {
   try {
     let settings: MediaTrackSettings = {};
     try { settings = track.getSettings(); } catch { /* Non-critical browser API. */ }
     const codecs = new Map<string, DiagnosticStatsEntry>();
     const outbound: DiagnosticStatsEntry[] = [];
+    const pairs = new Map<string, DiagnosticStatsEntry>();
+    let selectedPairId: string | undefined;
     stats.forEach((report) => {
       const entry = report as DiagnosticStatsEntry;
       if (entry.type === 'codec') codecs.set(entry.id, entry);
+      else if (entry.type === 'candidate-pair') pairs.set(entry.id, entry);
+      else if (entry.type === 'transport' && entry.selectedCandidatePairId) selectedPairId = entry.selectedCandidatePairId;
       else if (entry.type === 'outbound-rtp' && (entry.kind === 'video' || entry.mediaType === 'video')
         && entry.active !== false) outbound.push(entry);
     });
@@ -154,8 +165,13 @@ export function logScreenShareEncoder(
         height: diagnosticNumber(entry.frameHeight, 32768),
         fps: diagnosticNumber(entry.framesPerSecond, 1000),
         qualityLimitation,
+        targetBitrate: diagnosticNumber(entry.targetBitrate),
       }];
     }).sort((a, b) => b.bytesSent - a.bytesSent || b.framesEncoded - a.framesEncoded).slice(0, 3);
+    const pair = (selectedPairId ? pairs.get(selectedPairId) : undefined)
+      ?? [...pairs.values()].find(entry => entry.nominated && entry.state === 'succeeded');
+    const availableOutgoingBitrate = diagnosticNumber(pair?.availableOutgoingBitrate);
+    const rtt = diagnosticNumber(pair?.currentRoundTripTime, 600);
     console.info('[ScreenShare:Diagnostic] ' + JSON.stringify({
       phase: 'encoder',
       codec,
@@ -168,6 +184,11 @@ export function logScreenShareEncoder(
       },
       encoders,
       capabilities: h264Capabilities(),
+      requestedMaxBitrate: diagnosticNumber(requestedMaxBitrate),
+      ...(availableOutgoingBitrate !== undefined || rtt !== undefined ? { network: {
+        availableOutgoingBitrate,
+        roundTripTimeMs: rtt !== undefined ? Math.round(rtt * 1000) : undefined,
+      } } : {}),
     }));
   } catch {
     // Diagnostics must not affect publication, encoder detection, or toasts.

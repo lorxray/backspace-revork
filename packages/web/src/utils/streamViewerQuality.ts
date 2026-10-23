@@ -19,6 +19,11 @@ function positive(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function sameResolutionLayers(options: StreamViewerQualityOption[]): boolean {
+  return options.length > 1 && options[0]?.height !== undefined
+    && options.every(option => option.height === options[0]!.height);
+}
+
 /** Advertised encoding caps, never the receiver's measured throughput. */
 export function streamViewerQualityOptions(
   publication: RemoteTrackPublication,
@@ -54,6 +59,8 @@ export function streamViewerQualityOptions(
 export class StreamViewerQualityController {
   private readonly track: RemoteVideoTrack | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private startupTimer: ReturnType<typeof setTimeout> | undefined;
+  private startupPolls = 0;
   private disposeDimensions: ((restore: boolean) => void) | undefined;
   private stopped = false;
   private refreshing = false;
@@ -69,6 +76,7 @@ export class StreamViewerQualityController {
     this.options = streamViewerQualityOptions(publication);
     this.onOptions(this.options);
     if (this.track) {
+      this.apply();
       void this.refresh();
       this.timer = setInterval(() => { void this.refresh(); }, 3000);
     }
@@ -83,9 +91,15 @@ export class StreamViewerQualityController {
     if (this.stopped || !this.track || this.publication.track !== this.track) return;
     const selected = this.options.find((option) => option.value === this.choice);
     const multiple = this.options.length > 1;
-    const sameResolution = multiple && this.options.every((option) => option.height === this.options[0]?.height);
+    const sameResolution = sameResolutionLayers(this.options);
+    // Receiver stats are often empty before the first packet. The announced
+    // equal-size bitrate copies already tell us that viewport dimensions must
+    // not select the cheapest copy during that gap. Keep the menu conservative
+    // until the negotiated codec (including a possible backup) is confirmed.
+    const startupBitrateLayers = !this.codec && this.publication.source === Track.Source.ScreenShare
+      && sameResolutionLayers(streamViewerQualityOptions(this.publication, this.publication.trackInfo?.mimeType));
     const explicit = this.choice !== 'auto' && selected !== undefined;
-    if (multiple && (explicit || sameResolution)) {
+    if (startupBitrateLayers || (multiple && (explicit || sameResolution))) {
       this.disposeDimensions ??= controlScreenShareDimensions(this.publication, this.track) ?? undefined;
       if (!this.disposeDimensions) {
         // The installed SDK changed its adaptive-stream contract. Keep the
@@ -108,26 +122,35 @@ export class StreamViewerQualityController {
   async refresh(): Promise<void> {
     if (this.stopped || this.refreshing || !this.track) return;
     this.refreshing = true;
+    clearTimeout(this.startupTimer);
     try {
       const stats = await this.track.getReceiverStats();
       if (this.stopped || this.publication.track !== this.track) return;
+      const previousCodec = this.codec;
       if (stats?.mimeType) this.codec = stats.mimeType;
       const next = streamViewerQualityOptions(this.publication, this.codec);
-      if (JSON.stringify(next) !== JSON.stringify(this.options)) {
+      const optionsChanged = JSON.stringify(next) !== JSON.stringify(this.options);
+      if (optionsChanged) {
         this.options = next;
         this.onOptions(next);
-        this.apply();
       }
+      if (optionsChanged || previousCodec !== this.codec) this.apply();
     } catch {
       // Stats are optional (and briefly unavailable while reconnecting).
     } finally {
       this.refreshing = false;
+      // Resolve the codec promptly at subscription startup, then return to
+      // the normal low-frequency poll. Never run overlapping getStats calls.
+      if (!this.stopped && this.publication.track === this.track && !this.codec && this.startupPolls++ < 20) {
+        this.startupTimer = setTimeout(() => { void this.refresh(); }, 250);
+      }
     }
   }
 
   dispose(restore = false): void {
     this.stopped = true;
     clearInterval(this.timer);
+    clearTimeout(this.startupTimer);
     this.disposeDimensions?.(restore);
     this.disposeDimensions = undefined;
   }

@@ -17,6 +17,25 @@ afterEach(() => {
 });
 
 describe('screen-share encoder diagnostics', () => {
+  it('records startup targets and the selected network estimate without persisting candidate addresses', () => {
+    const output = vi.spyOn(console, 'info').mockImplementation(() => {});
+    logScreenShareEncoder('h264', capture(), report([
+      { type: 'outbound-rtp', kind: 'video', mimeType: 'video/H264', targetBitrate: 2_000_000 },
+      { id: 'selected', type: 'candidate-pair', state: 'succeeded', availableOutgoingBitrate: 3_000_000,
+        currentRoundTripTime: 0.035, localCandidateId: 'private-local', remoteCandidateId: 'private-remote' },
+      { type: 'transport', selectedCandidatePairId: 'selected' },
+      { type: 'candidate-pair', nominated: true, state: 'succeeded', availableOutgoingBitrate: 999_999 },
+      { type: 'remote-candidate', address: 'private-address' },
+    ]), 15_000_000);
+    const message = String(output.mock.calls[0]![0]);
+    expect(JSON.parse(message.slice(PREFIX.length))).toMatchObject({
+      requestedMaxBitrate: 15_000_000,
+      encoders: [{ targetBitrate: 2_000_000 }],
+      network: { availableOutgoingBitrate: 3_000_000, roundTripTimeMs: 35 },
+    });
+    expect(message).not.toMatch(/private|selectedCandidatePairId|localCandidateId/);
+  });
+
   it('records selected H264 parameters and technical capture/encoder fields without source content', () => {
     const output = vi.spyOn(console, 'info').mockImplementation(() => {});
     const getCapabilities = vi.fn(() => ({ codecs: [

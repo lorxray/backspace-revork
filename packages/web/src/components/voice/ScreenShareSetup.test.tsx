@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const deps = vi.hoisted(() => ({
@@ -134,5 +134,39 @@ describe('legacy desktop source picker cancellation', () => {
     act(() => { useScreenShareSetupStore.getState().open(); });
     expect(screen.getByTestId('screen-share-setup')).toBeInTheDocument();
     expect(deps.stageScreenCapture).toHaveBeenCalledOnce();
+  });
+});
+
+describe('progressive desktop source picker', () => {
+  const windowSource = { id: 'window:12:0', name: 'Film player', isScreen: false, thumbnailDataUrl: '', appIconDataUrl: null };
+
+  it('allows selecting a window before previews finish, then fills its thumbnail', async () => {
+    let finishPreviews!: (sources: ElectronScreenSource[]) => void;
+    window.backspace!.getScreenSourceList = vi.fn(async () => [windowSource]);
+    window.backspace!.getScreenSources = vi.fn(() => new Promise(resolve => { finishPreviews = resolve; }));
+    window.backspace!.preselectScreenSource = vi.fn(async () => {});
+    deps.stageScreenCapture.mockReturnValue(new Promise(() => {}));
+    useVoiceStore.setState({ lastScreenShareSourceId: null });
+    render(<ScreenShareSetup />);
+    fireEvent.click(await screen.findByRole('button', { name: /Windows/ }));
+    const tile = await screen.findByRole('button', { name: 'Film player' });
+    expect(tile).toBeEnabled();
+    expect(within(tile).queryByRole('img')).not.toBeInTheDocument();
+    fireEvent.click(tile);
+    await waitFor(() => expect(window.backspace!.preselectScreenSource).toHaveBeenCalledWith(windowSource.id, expect.any(Boolean)));
+    await act(async () => finishPreviews([{ ...windowSource, thumbnailDataUrl: 'data:image/png;base64,preview' }]));
+    expect(within(tile).getByRole('img', { name: 'Film player' })).toHaveAttribute('src', 'data:image/png;base64,preview');
+    expect(deps.stageScreenCapture).toHaveBeenCalledOnce();
+  });
+
+  it('keeps source choices when thumbnail capture fails', async () => {
+    window.backspace!.getScreenSourceList = vi.fn(async () => [windowSource]);
+    window.backspace!.getScreenSources = vi.fn().mockRejectedValue(new Error('Preview capture failed'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<ScreenShareSetup />);
+    fireEvent.click(await screen.findByRole('button', { name: /Windows/ }));
+    expect(await screen.findByRole('button', { name: 'Film player' })).toBeEnabled();
+    await waitFor(() => expect(warning).toHaveBeenCalled());
+    warning.mockRestore();
   });
 });

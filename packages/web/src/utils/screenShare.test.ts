@@ -484,15 +484,17 @@ describe('screen-share media options', () => {
       'warning',
       8000,
     );
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(addToast).toHaveBeenCalledTimes(1);
   });
 
-  it('records encoder snapshots only during the existing bounded H264 detection attempts', async () => {
+  it('records bounded startup snapshots through 15 seconds even after identifying a hardware encoder', async () => {
     useVoiceStore.getState().setScreenShareConfig({ codec: 'h264' });
     const video = makeVideoTrack();
     const room = fakeRoom();
     const sender = attachPublishedSender(room, video, [
       ['codec-h264', { id: 'codec-h264', type: 'codec', mimeType: 'video/H264', sdpFmtpLine: 'profile-level-id=42e033;packetization-mode=1' }],
-      ['outbound-h264', { id: 'outbound-h264', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264', bytesSent: 100 }],
+      ['outbound-h264', { id: 'outbound-h264', type: 'outbound-rtp', kind: 'video', codecId: 'codec-h264', bytesSent: 100, encoderImplementation: 'ExternalEncoder' }],
     ]);
     const output = vi.spyOn(console, 'info').mockImplementation(() => {});
 
@@ -507,12 +509,14 @@ describe('screen-share media options', () => {
     expect(output).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(4000);
     expect(output).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(output).toHaveBeenCalledTimes(5);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(sender.getStats).toHaveBeenCalledTimes(4);
-    expect(output).toHaveBeenCalledTimes(4);
+    expect(sender.getStats).toHaveBeenCalledTimes(5);
+    expect(output).toHaveBeenCalledTimes(5);
     expect(JSON.parse(String(output.mock.calls[0]![0]).slice('[ScreenShare:Diagnostic] '.length))).toMatchObject({
       phase: 'encoder', codec: 'h264', capture: { width: 2560, height: 1440 },
-      encoders: [{ codec: 'h264', profile: '42e033', packetizationMode: '1', implementation: null }],
+      encoders: [{ codec: 'h264', profile: '42e033', packetizationMode: '1', implementation: 'ExternalEncoder' }],
     });
   });
 

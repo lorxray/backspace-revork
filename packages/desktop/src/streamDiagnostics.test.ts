@@ -97,6 +97,22 @@ describe('local stream failure diagnostics', () => {
 });
 
 describe('encoder and main-process GPU diagnostics', () => {
+  it('preserves bounded startup network measurements while discarding candidate data', () => {
+    const log = createStreamDiagnosticLogger(directory, '1.11.16');
+    const input = encoderPayload();
+    expect(log(message({ ...input, requestedMaxBitrate: 15_000_000,
+      encoders: input.encoders.map(entry => ({ ...entry, targetBitrate: 2_000_000 })),
+      network: { availableOutgoingBitrate: 3_000_000, roundTripTimeMs: 35, address: 'private address' },
+    }))).toBe(true);
+    expect(readRecords()[0]).toMatchObject({ requestedMaxBitrate: 15_000_000,
+      network: { availableOutgoingBitrate: 3_000_000, roundTripTimeMs: 35 },
+      encoders: [{ targetBitrate: 2_000_000 }],
+    });
+    expect(JSON.stringify(readRecords())).not.toContain('private');
+    expect(log(message({ ...input, network: { roundTripTimeMs: -1 } }))).toBe(false);
+    expect(log(message({ ...input, requestedMaxBitrate: '15000000' }))).toBe(false);
+  });
+
   it('records the actual encoder profile and bounded native GPU context', () => {
     const runtime = {
       videoEncode: 'enabled',

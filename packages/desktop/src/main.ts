@@ -66,10 +66,10 @@ import { MICROPHONE_GATE_SCHEME, handleMicrophoneGateRequest } from './microphon
 import {
   screenSharePickerMode,
   isPendingSelectionFresh,
-  screenEnumerationDecision,
   type PendingScreenSelection,
   type ScreenSharePickerMode,
 } from './screenSharePolicy';
+import { createScreenSourceCatalog, serializeScreenSources } from './screenSourceCatalog';
 import { getDesktopLanguage, isDesktopLanguage, saveStoredLanguage, translateDesktop } from './l10n';
 import { createBundledWebClient, type BundledWebClient } from './bundledWebClient';
 import { resolveInstanceRedirect } from './instanceRedirect';
@@ -672,14 +672,6 @@ function showNotification(title: string, body: string, onClick?: () => void): vo
 // Screen share sources
 // ---------------------------------------------------------------------------
 
-interface SerializedScreenSource {
-  id: string;
-  name: string;
-  thumbnailDataUrl: string;
-  appIconDataUrl: string | null;
-  isScreen: boolean;
-}
-
 let pendingScreenSelection: PendingScreenSelection | null = null;
 /** Loopback preference for system-picker captures (no preselection carries it there). */
 let lastSystemPickerShareAudio: boolean | null = null;
@@ -697,31 +689,11 @@ const systemAudio = createSystemAudioController({
   isSandboxed,
   log: (message, ...args) => console.warn('[Main:SystemAudio]', message, ...args),
 });
-/** Last enumeration, so a preselected id resolves to its DesktopCapturerSource without a second scan. */
-let lastScreenSources: Electron.DesktopCapturerSource[] = [];
-/** Last list handed to the renderer, and when: what a throttled or unfocused caller gets back. */
-let lastServedScreenSources: SerializedScreenSource[] = [];
-let lastScreenEnumerationAt: number | null = null;
-
-async function enumerateScreenSources(): Promise<Electron.DesktopCapturerSource[]> {
-  const sources = await desktopCapturer.getSources({
-    types: ['screen', 'window'],
-    thumbnailSize: { width: 320, height: 180 },
-    fetchWindowIcons: true,
-  });
-  lastScreenSources = sources;
-  return sources;
-}
-
-function serializeScreenSources(sources: Electron.DesktopCapturerSource[]): SerializedScreenSource[] {
-  return sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    thumbnailDataUrl: source.thumbnail.toDataURL(),
-    appIconDataUrl: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
-    isScreen: source.id.startsWith('screen:'),
-  }));
-}
+const screenSourceCatalog = createScreenSourceCatalog(
+  options => desktopCapturer.getSources(options),
+  Date.now,
+  (previews, count, elapsedMs) => console.log('[Main:ScreenShare] Source enumeration:', { previews, count, elapsedMs }),
+);
 
 function currentPickerMode(): ScreenSharePickerMode {
   return screenSharePickerMode(process.platform, process.env);
@@ -891,18 +863,11 @@ function registerIpcHandlers(): void {
   // policy: the app's own window only, focused only, and no faster than the
   // cache window, so a page polling on a timer cannot quietly photograph
   // whatever the user switched to.
-  ipcMain.handle('get-screen-sources', async (event): Promise<SerializedScreenSource[]> => {
-    const decision = screenEnumerationDecision({
+  ipcMain.handle('get-screen-sources', (event, options?: { thumbnails?: boolean }) => {
+    return screenSourceCatalog.read({
       fromMainWindow: event.sender === mainWindow?.webContents,
       windowFocused: mainWindow?.isFocused() ?? false,
-      lastEnumeratedAt: lastScreenEnumerationAt,
-      now: Date.now(),
-    });
-    if (decision === 'deny') return [];
-    if (decision === 'serve-cache') return lastServedScreenSources;
-    lastServedScreenSources = serializeScreenSources(await enumerateScreenSources());
-    lastScreenEnumerationAt = Date.now();
-    return lastServedScreenSources;
+    }, options?.thumbnails !== false);
   });
   ipcMain.handle('get-screen-share-picker-mode', (event) => {
     if (event.sender !== mainWindow?.webContents) return 'app';
@@ -1504,8 +1469,8 @@ if (!gotTheLock) {
       try {
         const pending = takePendingScreenSelection();
         if (pending) {
-          let selected = lastScreenSources.find((s) => s.id === pending.sourceId);
-          if (!selected) selected = (await enumerateScreenSources()).find((s) => s.id === pending.sourceId);
+          let selected = screenSourceCatalog.find(pending.sourceId);
+          if (!selected) selected = (await screenSourceCatalog.enumerate(false)).find((s) => s.id === pending.sourceId);
           if (!selected) {
             console.warn('[Main:ScreenShare] Preselected source vanished:', pending.sourceId);
             // @ts-ignore — deny the request without crashing
@@ -1517,7 +1482,7 @@ if (!gotTheLock) {
           return;
         }
 
-        const sources = await enumerateScreenSources();
+        const sources = await screenSourceCatalog.enumerate();
         console.log('[Main:ScreenShare] Got', sources.length, 'sources');
 
         if (sources.length === 0) {
@@ -1586,9 +1551,7 @@ if (!gotTheLock) {
         // resolve a preselected id within this request, the serialized one to
         // answer a repeat call without a second scan. Both pin a thumbnail per
         // open window, so drop them as soon as the request is answered.
-        lastScreenSources = [];
-        lastServedScreenSources = [];
-        lastScreenEnumerationAt = null;
+        screenSourceCatalog.clear();
       }
     });
 

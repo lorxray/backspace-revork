@@ -95,6 +95,10 @@ function parseEncoder(input: JsonObject): JsonObject | null {
       if (!number(entry[field], field === 'fps' ? 1000 : 32768)) return null;
       safe[field] = entry[field];
     }
+    if (entry.targetBitrate !== undefined) {
+      if (!number(entry.targetBitrate, Number.MAX_SAFE_INTEGER)) return null;
+      safe.targetBitrate = entry.targetBitrate;
+    }
     if (entry.qualityLimitation !== undefined) {
       const reason = oneOf(entry.qualityLimitation, ['none', 'cpu', 'bandwidth', 'other']);
       if (!reason) return null;
@@ -108,7 +112,23 @@ function parseEncoder(input: JsonObject): JsonObject | null {
     if (!profile || !profile.profile) return null;
     capabilities.push(profile);
   }
-  return { phase: 'encoder', codec, capture, encoders, capabilities };
+  const result: JsonObject = { phase: 'encoder', codec, capture, encoders, capabilities };
+  if (input.requestedMaxBitrate !== undefined) {
+    if (!number(input.requestedMaxBitrate, Number.MAX_SAFE_INTEGER)) return null;
+    result.requestedMaxBitrate = input.requestedMaxBitrate;
+  }
+  if (input.network !== undefined) {
+    const network = object(input.network);
+    if (!network) return null;
+    const safeNetwork: JsonObject = {};
+    for (const field of ['availableOutgoingBitrate', 'roundTripTimeMs'] as const) {
+      if (network[field] === undefined) continue;
+      if (!number(network[field], field === 'roundTripTimeMs' ? 600_000 : Number.MAX_SAFE_INTEGER)) return null;
+      safeNetwork[field] = network[field];
+    }
+    result.network = safeNetwork;
+  }
+  return result;
 }
 
 /** Runtime fields come from the main process, independently of renderer input. */

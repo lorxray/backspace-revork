@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('backspace', {
     ipcRenderer.send('screen-share-selected', sourceId, shareAudio ?? true);
   },
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+  getScreenSourceList: () => ipcRenderer.invoke('get-screen-sources', { thumbnails: false }),
   // invoke, not send: the renderer must know the preselection has landed in the
   // main process before it calls getDisplayMedia(), or the two race.
   preselectScreenSource: (sourceId: string | null, shareAudio?: boolean) =>

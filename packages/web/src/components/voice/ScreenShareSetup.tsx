@@ -267,8 +267,21 @@ export function ScreenShareSetup() {
     if (!isOpen || !canListSources || !api?.getScreenSources) return;
     let cancelled = false;
     setLoadingSources(true);
-    api.getScreenSources()
-      .then((list) => { if (!cancelled) setSources(list); })
+    const listSources = api.getScreenSourceList ?? api.getScreenSources;
+    listSources()
+      .then((list) => {
+        if (cancelled) return;
+        setSources(list);
+        setLoadingSources(false);
+        if (!api.getScreenSourceList) return;
+        // Selection and staging remain available while Windows captures previews.
+        void api.getScreenSources!().then(previews => {
+          if (!cancelled) setSources(current => {
+            const byId = new Map(previews.map(source => [source.id, source]));
+            return current.map(source => byId.get(source.id) ?? source);
+          });
+        }).catch(err => console.warn('[ScreenShareSetup] Source previews unavailable:', err));
+      })
       .catch((err) => { console.error('[ScreenShareSetup] getScreenSources failed:', err); if (!cancelled) setSources([]); })
       .finally(() => { if (!cancelled) setLoadingSources(false); });
     return () => { cancelled = true; };
@@ -834,12 +847,17 @@ function SourceCard({ source, selected, onClick, onDoubleClick }: {
     >
       {/* Thumbnail */}
       <div className="relative aspect-video bg-black/40 overflow-hidden">
-        <img
+        {source.thumbnailDataUrl ? <img
           src={source.thumbnailDataUrl}
           alt={source.name}
           className="w-full h-full object-contain"
           draggable={false}
-        />
+        /> : <div className="w-full h-full flex items-center justify-center text-txt-tertiary" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            {source.isScreen ? <path d="M8 21h8m-4-4v4" /> : <path d="M3 8h18" />}
+          </svg>
+        </div>}
         {selected && (
           <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-accent-primary flex items-center justify-center">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="white">

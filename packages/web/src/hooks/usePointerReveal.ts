@@ -56,39 +56,38 @@ export function usePointerReveal(
       return;
     }
 
-    // Entering fullscreen reveals the chrome, then lets it settle. Without
-    // this the controls — including the way back out — would already be gone
-    // by the time the transition finishes.
-    setRevealed(true);
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      setRevealed(false);
-    }, idleMs);
-
-    const handlePointerActivity = (event: Event): void => {
+    const reveal = (overChrome = false): void => {
       clearIdleTimer();
       setRevealed(true);
-
-      const overChrome =
-        event.target instanceof Element && event.target.closest(`[${VOICE_CHROME_ATTR}]`) !== null;
-      if (overChrome) {
-        // Leave no pending timer: the pointer is on the controls, and the
-        // next event that moves it off them starts the countdown again.
-        return;
-      }
-
+      if (overChrome) return;
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
         setRevealed(false);
       }, idleMs);
     };
 
-    target.addEventListener('pointermove', handlePointerActivity);
-    target.addEventListener('pointerdown', handlePointerActivity);
+    // Start the full idle interval again when the native transition finishes.
+    // A slow fullscreen transition must not consume the time to find the bar.
+    const handleFullscreenChange = (): void => {
+      if (document.fullscreenElement?.contains(target)) reveal();
+    };
+    reveal();
+
+    const handlePointerActivity = (event: Event): void => {
+      const overChrome =
+        event.target instanceof Element && event.target.closest(`[${VOICE_CHROME_ATTR}]`) !== null;
+      reveal(overChrome);
+    };
+
+    // Observe before video/zoom/menu handlers can stop bubbling. Mouse events
+    // also cover native desktop surfaces that do not forward pointer activity.
+    const activityEvents = ['pointermove', 'pointerdown', 'pointerenter', 'mousemove', 'mousedown', 'wheel'] as const;
+    for (const name of activityEvents) target.addEventListener(name, handlePointerActivity, { capture: true, passive: true });
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
-      target.removeEventListener('pointermove', handlePointerActivity);
-      target.removeEventListener('pointerdown', handlePointerActivity);
+      for (const name of activityEvents) target.removeEventListener(name, handlePointerActivity, true);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
       clearIdleTimer();
     };
   }, [active, idleMs, targetRef]);

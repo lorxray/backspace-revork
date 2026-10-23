@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { useRef } from 'react';
 import { usePointerReveal } from './usePointerReveal';
 
@@ -30,6 +30,54 @@ afterEach(() => {
 });
 
 describe('usePointerReveal', () => {
+  it('reveals controls when zooming with the wheel without moving the pointer', () => {
+    vi.useFakeTimers();
+    const view = render(<Probe active />);
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    fireEvent.wheel(view.getByTestId('video'), { deltaY: -100 });
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    view.unmount();
+  });
+
+  it('reveals before a child video or zoom handler stops pointer event bubbling', () => {
+    vi.useFakeTimers();
+    const view = render(<Probe active />);
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    view.getByTestId('video').addEventListener('pointermove', event => event.stopPropagation());
+    movePointerOver(view.getByTestId('video'));
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    view.unmount();
+  });
+
+  it('accepts native mouse movement and keeps controls available while aiming', () => {
+    vi.useFakeTimers();
+    const view = render(<Probe active />);
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    fireEvent.mouseMove(view.getByTestId('video'));
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    fireEvent.mouseMove(view.getByTestId('button'));
+    act(() => vi.advanceTimersByTime(IDLE_MS * 4));
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    fireEvent.mouseMove(view.getByTestId('video'));
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    expect(view.getByTestId('state')).toHaveTextContent('hidden');
+    view.unmount();
+  });
+
+  it('gives a full idle interval after native fullscreen finishes', () => {
+    vi.useFakeTimers();
+    const view = render(<Probe active />);
+    act(() => vi.advanceTimersByTime(IDLE_MS - 1));
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: view.getByTestId('surface') });
+    fireEvent(document, new Event('fullscreenchange'));
+    act(() => vi.advanceTimersByTime(IDLE_MS - 1));
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    act(() => vi.advanceTimersByTime(1));
+    expect(view.getByTestId('state')).toHaveTextContent('hidden');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    view.unmount();
+  });
+
   it('hides the chrome once the pointer has been still, which :hover cannot do', () => {
     vi.useFakeTimers();
     const view = render(<Probe active />);

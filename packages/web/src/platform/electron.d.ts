@@ -38,7 +38,7 @@ type OwnAudioInSystemAudio = 'excluded' | 'included' | 'unavailable' | 'unknown'
 interface ElectronScreenSource {
   id: string;                      // "screen:0:0" or "window:12345:0"
   name: string;                    // "Entire Screen" or "Firefox"
-  thumbnailDataUrl: string;        // PNG data URL at 320×180
+  thumbnailDataUrl: string;        // PNG data URL at 320×180; empty while previews load
   appIconDataUrl: string | null;   // App icon (windows only)
   isScreen: boolean;               // true = display, false = window
 }
@@ -136,6 +136,8 @@ interface BackspaceElectronAPI {
    * (getDisplayMedia → onScreenShareSources → selectScreenSource).
    */
   getScreenSources?: () => Promise<ElectronScreenSource[]>;
+  /** Fast selectable metadata; getScreenSources adds previews separately. */
+  getScreenSourceList?: () => Promise<ElectronScreenSource[]>;
   /** Null disarms an abandoned, not yet consumed preselection. */
   preselectScreenSource?: (sourceId: string | null, shareAudio?: boolean) => Promise<void>;
   /**

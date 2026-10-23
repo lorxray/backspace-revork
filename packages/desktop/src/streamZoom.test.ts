@@ -50,6 +50,17 @@ function toolbar(tile: HTMLElement): HTMLElement {
   return element!;
 }
 
+function cinemaStream() {
+  const result = stream({ focused: false, caption: false });
+  result.tile.removeAttribute('data-context-menu');
+  result.tile.setAttribute('data-cinema-player', '');
+  const controls = document.createElement('div');
+  controls.setAttribute('data-voice-chrome', '');
+  controls.innerHTML = '<div data-cinema-zoom></div><input type="range" aria-label="Film volume"><button>Mute film</button>';
+  result.tile.append(controls);
+  return { ...result, controls, mount: controls.querySelector<HTMLElement>('[data-cinema-zoom]')! };
+}
+
 function control(tile: HTMLElement, name: string): HTMLButtonElement {
   const element = toolbar(tile).shadowRoot?.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
   expect(element, `zoom control: ${name}`).not.toBeNull();
@@ -105,6 +116,64 @@ afterEach(() => {
 });
 
 describe('bundled desktop stream zoom', () => {
+  it('adds the same zoom controls to the cinema toolbar and pans the existing video', () => {
+    const { tile, video, source, mount } = cinemaStream();
+    install();
+    expect(toolbar(tile).parentElement).toBe(mount);
+    expect(toolbar(tile).style.position).toBe('relative');
+    expect(toolbar(tile).hasAttribute('data-voice-chrome')).toBe(true);
+    for (let index = 0; index < 4; index++) control(tile, 'Zoom in').click();
+    expect(percentage(tile)).toBe(200);
+    pointer(video, 'pointerdown', 500, 350);
+    pointer(tile, 'pointermove', 650, 420);
+    pointer(tile, 'pointerup', 650, 420);
+    expect(translation(video)).toEqual({ x: 150, y: 70 });
+    expect(video.srcObject).toBe(source);
+    expect(video.parentElement).toBe(tile);
+    control(tile, 'Reset zoom').click();
+    expect(percentage(tile)).toBe(100);
+    expect(translation(video)).toEqual({ x: 0, y: 0 });
+    expect(wheel(video, -100).defaultPrevented).toBe(true);
+    expect(percentage(tile)).toBeGreaterThan(100);
+  });
+
+  it('lets cinema own toolbar visibility and keeps volume controls and toolbar padding interactive', async () => {
+    vi.useFakeTimers();
+    const { tile, video, controls } = cinemaStream();
+    install();
+    control(tile, 'Zoom in').click();
+    const before = video.style.transform;
+    for (const target of [controls, controls.querySelector('input')!, controls.querySelector('button')!]) {
+      expect(wheel(target, -100).defaultPrevented).toBe(false);
+      expect(pointer(target, 'pointerdown', 500, 350).defaultPrevented).toBe(false);
+    }
+    expect(tile.setPointerCapture).not.toHaveBeenCalled();
+    expect(video.style.transform).toBe(before);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(toolbar(tile).style.opacity).not.toBe('0');
+    tile.classList.add('cursor-none');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tile.style.cursor).toBe('');
+    tile.classList.remove('cursor-none');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tile.style.cursor).toBe('grab');
+  });
+
+  it('transfers zoom behavior between the regular viewer and cinema without keeping hidden controllers', async () => {
+    const regular = stream();
+    install();
+    control(regular.tile, 'Zoom in').click();
+    const cinema = cinemaStream();
+    await mutations();
+    expect(regular.tile.querySelector('[data-backspace-stream-zoom]')).toBeNull();
+    control(cinema.tile, 'Zoom in').click();
+    expect(percentage(cinema.tile)).toBe(125);
+    cinema.wrapper.remove();
+    await mutations();
+    expect(percentage(regular.tile)).toBe(100);
+    expect(wheel(cinema.video, -100).defaultPrevented).toBe(false);
+  });
+
   it('adds controls only to a focused watched stream, keeping its media element and source intact', () => {
     const focused = stream();
     const grid = stream({ focused: false });

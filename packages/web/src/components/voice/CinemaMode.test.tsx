@@ -61,6 +61,38 @@ const enter = () => fireEvent.click(screen.getByRole('button', { name: 'Cinema m
 const exit = () => fireEvent.click(screen.getByRole('button', { name: 'Exit cinema mode (Esc)' }));
 
 describe('cinema viewing lifecycle', () => {
+  it('includes injected zoom shadow buttons in the keyboard focus loop', () => {
+    view(); enter();
+    const player = screen.getByRole('dialog');
+    const host = document.createElement('div');
+    host.setAttribute('data-backspace-stream-zoom', '');
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<button disabled>Zoom out</button><button>Reset zoom</button><button>Zoom in</button>';
+    player.querySelector('[data-cinema-zoom]')!.append(host);
+    player.focus();
+    expect(document.activeElement).toBe(player);
+    fireEvent.keyDown(player, { key: 'Tab' });
+    expect(host.isConnected).toBe(true);
+    expect(shadow.activeElement).toBe(shadow.querySelectorAll('button')[1]);
+    fireEvent.keyDown(shadow.querySelectorAll('button')[1]!, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Exit cinema mode (Esc)' }));
+  });
+
+  it('restores the hidden bar with native mouse events over the video and keyboard Tab', () => {
+    view(); enter();
+    const player = screen.getByRole('dialog');
+    const controls = screen.getByTestId('cinema-controls');
+    act(() => vi.advanceTimersByTime(POINTER_REVEAL_IDLE_MS + 1));
+    expect(controls).toHaveClass('opacity-0');
+    fireEvent.mouseMove(player.querySelector('video')!);
+    expect(controls).toHaveClass('opacity-100');
+    act(() => vi.advanceTimersByTime(POINTER_REVEAL_IDLE_MS + 1));
+    expect(controls).toHaveClass('opacity-0');
+    fireEvent.keyDown(player, { key: 'Tab' });
+    expect(controls).toHaveClass('opacity-100');
+    expect(controls.contains(document.activeElement)).toBe(true);
+  });
+
   it('opens from a stream button, uses one existing muted video attachment, and restores the regular view on exit', async () => {
     const { container } = view();
     expect(attached.size).toBe(1);

@@ -8,7 +8,7 @@ vi.mock('../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({}
 type TrackInfo = ConstructorParameters<typeof RemoteTrackPublication>[1];
 const controllers: StreamViewerQualityController[] = [];
 
-function fixture(heights = [1440, 1440, 1440]) {
+function fixture(heights = [1440, 1440, 1440], initialCodec: string | null = 'video/H264') {
   const layers = heights.map((height, quality) => ({ quality, width: Math.round(height * 16 / 9), height, bitrate: 7_500_000 * 2 ** quality, ssrc: 0 }));
   const info = {
     sid: 'TR_SCREEN', name: 'screen', source: 3, type: 1, width: 2560, height: 1440,
@@ -18,7 +18,8 @@ function fixture(heights = [1440, 1440, 1440]) {
   const pub = new RemoteTrackPublication(Track.Kind.Video, info, true);
   const media = { id: 'media', kind: 'video', enabled: true, readyState: 'live' } as MediaStreamTrack;
   const track = new RemoteVideoTrack(media, 'TR_SCREEN', {} as RTCRtpReceiver, {});
-  const stats = vi.spyOn(track, 'getReceiverStats').mockResolvedValue({ mimeType: 'video/H264' } as Awaited<ReturnType<typeof track.getReceiverStats>>);
+  const stats = vi.spyOn(track, 'getReceiverStats').mockResolvedValue(initialCodec
+    ? { mimeType: initialCodec } as Awaited<ReturnType<typeof track.getReceiverStats>> : undefined);
   pub.setTrack(track);
   const updates: { quality: number; width: number; height: number; disabled: boolean }[] = [];
   pub.on(TrackEvent.UpdateSettings, (settings) => updates.push({ quality: settings.quality, width: settings.width, height: settings.height, disabled: settings.disabled }));
@@ -34,6 +35,43 @@ beforeEach(() => { vi.useFakeTimers(); useVoiceStore.setState(useVoiceStore.getI
 afterEach(() => { controllers.splice(0).forEach((controller) => controller.dispose()); vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('viewer quality against real LiveKit publications', () => {
+  it('requests the high bitrate copy before the first receiver packet, without advertising unconfirmed codec layers', async () => {
+    const { controller, track, updates, options, stats } = fixture(undefined, null);
+    controller.setQuality('auto');
+    track.emit(TrackEvent.VideoDimensionsChanged, { width: 640, height: 360 });
+    expect(updates.at(-1)).toEqual({ quality: VideoQuality.HIGH, width: 0, height: 0, disabled: false });
+    expect(options.mock.lastCall?.[0]).toHaveLength(1);
+    await settled();
+    stats.mockResolvedValue({ mimeType: 'video/H264' } as Awaited<ReturnType<typeof track.getReceiverStats>>);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(options.mock.lastCall?.[0]).toHaveLength(3);
+    expect(updates.at(-1)?.quality).toBe(VideoQuality.HIGH);
+  });
+
+  it('restores adaptive dimensions as soon as the actual single-layer backup is identified', async () => {
+    const { track, updates, stats, options } = fixture(undefined, null);
+    track.emit(TrackEvent.VideoDimensionsChanged, { width: 640, height: 360 });
+    await settled();
+    stats.mockResolvedValue({ mimeType: 'video/VP8' } as Awaited<ReturnType<typeof track.getReceiverStats>>);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(options.mock.lastCall?.[0]).toHaveLength(1);
+    expect(updates.at(-1)).toMatchObject({ width: 640, height: 360 });
+    track.emit(TrackEvent.VideoDimensionsChanged, { width: 320, height: 180 });
+    expect(updates.at(-1)).toMatchObject({ width: 320, height: 180 });
+  });
+
+  it('preserves normal adaptive startup for streams with different spatial resolutions', async () => {
+    const { track, updates, controller, stats } = fixture([360, 720, 1440], null);
+    controller.setQuality('auto');
+    track.emit(TrackEvent.VideoDimensionsChanged, { width: 640, height: 360 });
+    expect(updates.at(-1)).toMatchObject({ width: 640, height: 360 });
+    await settled();
+    controller.dispose();
+    const calls = stats.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stats).toHaveBeenCalledTimes(calls);
+  });
+
   it('uses advertised caps for the negotiated codec, including a single-layer backup', () => {
     const { pub } = fixture();
     expect(streamViewerQualityOptions(pub)).toEqual([{ value: 'original', height: 1440 }]);

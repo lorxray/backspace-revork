@@ -108,7 +108,7 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
   const enforcement = getSpaceEnforcementState();
   return createPortal(
     <div ref={rootRef} data-cinema-player role="dialog" aria-modal="true" aria-label={t('cinema.title')} tabIndex={-1}
-      className={`fixed inset-0 z-[500] bg-black text-white outline-none ${visible ? '' : 'cursor-none'}`}
+      className={`fixed inset-0 z-[500] overflow-hidden bg-black text-white outline-none ${visible ? '' : 'cursor-none'}`}
       style={{ width: 'calc(100 * var(--app-vw, 1vw))', height: 'calc(100 * var(--app-vh, 1vh))' }}
       onContextMenu={event => event.preventDefault()}
       onPointerMove={event => {
@@ -117,12 +117,16 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
       onKeyDown={event => {
         setControlsFocused(true);
         if (event.key !== 'Tab') return;
-        const buttons = rootRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)');
+        const buttons = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('*') ?? [])
+          .filter(element => element.matches('button:not(:disabled), input:not(:disabled), [data-backspace-stream-zoom]'))
+          .flatMap(element => element.shadowRoot
+          ? Array.from(element.shadowRoot.querySelectorAll<HTMLElement>('button:not(:disabled)')) : [element]);
         if (!buttons?.length) return;
         const first = buttons[0], last = buttons[buttons.length - 1];
-        if (document.activeElement === rootRef.current || (!event.shiftKey && document.activeElement === last)) {
+        const active = document.activeElement?.shadowRoot?.activeElement ?? document.activeElement;
+        if (active === rootRef.current || (!event.shiftKey && active === last)) {
           event.preventDefault(); (event.shiftKey ? last : first)?.focus();
-        } else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        } else if (event.shiftKey && active === first) { event.preventDefault(); last?.focus(); }
       }}>
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain bg-black" />
       {(!track || ended) && <div role="status" className="absolute inset-0 flex items-center justify-center text-white/70 text-sm">{t('cinema.waiting')}</div>}
@@ -131,6 +135,7 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
         onFocusCapture={() => setControlsFocused(true)}
         onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setControlsFocused(false); }}>
         <div className="mx-auto max-w-6xl flex flex-wrap justify-center items-center gap-3">
+          <div data-cinema-zoom />
           <button type="button" className={controlClass} aria-pressed={streamMuted}
             onClick={() => useVoiceStore.getState().setStreamMute(target.userId, !streamMuted)}>{t(streamMuted ? 'cinema.unmuteFilm' : 'cinema.muteFilm')}</button>
           <label className="flex items-center gap-2 text-xs text-white/80">

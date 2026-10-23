@@ -26,6 +26,13 @@ export function installStreamZoom(): () => void {
 
   function focusedStreams(): Map<HTMLElement, HTMLVideoElement> {
     const found = new Map<HTMLElement, HTMLVideoElement>();
+    for (const player of document.querySelectorAll<HTMLElement>('[data-cinema-player]')) {
+      const video = Array.from(player.children).find((child): child is HTMLVideoElement => child instanceof HTMLVideoElement);
+      if (video) found.set(player, video);
+    }
+    // The regular viewer stays mounted behind cinema, but only the visible
+    // player should own a zoom controller and pointer handlers.
+    if (found.size > 0) return found;
     for (const caption of document.querySelectorAll('[data-testid="stream-tile-caption"]')) {
       const tile = caption.parentElement;
       const wrapper = tile?.parentElement;
@@ -54,6 +61,7 @@ export function installStreamZoom(): () => void {
   }
 
   function createController(tile: HTMLElement, video: HTMLVideoElement): Controller {
+    const cinema = tile.hasAttribute('data-cinema-player');
     let view: View = { scale: 1, x: 0, y: 0 };
     let drag: { id: number; x: number; y: number } | null = null;
     let source = video.srcObject;
@@ -71,6 +79,7 @@ export function installStreamZoom(): () => void {
     const restoreTile = preserveStyles(tile, ['touch-action', 'cursor']);
     const host = document.createElement('div');
     host.setAttribute('data-backspace-stream-zoom', '');
+    host.setAttribute('data-voice-chrome', '');
     host.setAttribute('role', 'group');
     host.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:48px;z-index:10;transition:opacity .15s;';
     const shadow = host.attachShadow({ mode: 'open' });
@@ -101,6 +110,7 @@ export function installStreamZoom(): () => void {
     tile.append(host);
 
     function hideControls(): void {
+      if (cinema) return; // Cinema's toolbar owns visibility for all its controls.
       window.clearTimeout(hideControlsTimer);
       hideControlsTimer = undefined;
       host.style.opacity = '0';
@@ -108,6 +118,7 @@ export function installStreamZoom(): () => void {
     }
 
     function showControls(): void {
+      if (cinema) return;
       window.clearTimeout(hideControlsTimer);
       host.style.opacity = '1';
       host.style.pointerEvents = 'auto';
@@ -177,7 +188,8 @@ export function installStreamZoom(): () => void {
       if (video.style.pointerEvents !== 'none') video.style.pointerEvents = 'none';
       const touchAction = view.scale > 1 ? 'pinch-zoom' : originalTouchAction;
       if (tile.style.touchAction !== touchAction) tile.style.touchAction = touchAction;
-      const cursor = view.scale > 1 ? (drag ? 'grabbing' : 'grab') : originalCursor;
+      const cursor = cinema && tile.classList.contains('cursor-none') ? originalCursor
+        : view.scale > 1 ? (drag ? 'grabbing' : 'grab') : originalCursor;
       if (tile.style.cursor !== cursor) tile.style.cursor = cursor;
       minus.disabled = view.scale <= 1;
       plus.disabled = view.scale >= 4;
@@ -196,13 +208,24 @@ export function installStreamZoom(): () => void {
         button.title = label;
       }
       host.title = labels[4];
-      const voiceContainer = tile.closest('.group\\/voice');
-      const fullscreen = document.fullscreenElement?.contains(tile) || voiceContainer?.classList.contains('h-screen');
-      const bottom = fullscreen ? '96px' : '48px';
-      if (host.style.bottom !== bottom) host.style.bottom = bottom;
+      const cinemaMount = cinema ? tile.querySelector<HTMLElement>('[data-cinema-zoom]') : null;
+      const parent = cinemaMount ?? tile;
+      if (cinemaMount) {
+        if (host.style.position !== 'relative') {
+          host.style.position = 'relative';
+          host.style.left = '';
+          host.style.transform = '';
+          host.style.bottom = '';
+        }
+      } else {
+        const voiceContainer = tile.closest('.group\\/voice');
+        const fullscreen = cinema || document.fullscreenElement?.contains(tile) || voiceContainer?.classList.contains('h-screen');
+        const bottom = fullscreen ? '96px' : '48px';
+        if (host.style.bottom !== bottom) host.style.bottom = bottom;
+      }
       // React may recreate siblings while keeping this video. Reinsert only the
       // controls it removed; never move or replace the attached video element.
-      if (host.parentElement !== tile) tile.append(host);
+      if (host.parentElement !== parent) parent.append(host);
     }
 
     function zoom(scale: number, x = 0, y = 0): void {
@@ -219,7 +242,7 @@ export function installStreamZoom(): () => void {
       for (const target of event.composedPath()) {
         if (target === tile) break;
         if (target instanceof Element && target.matches(
-          'button, a[href], input, select, textarea, label, summary, [role="button"], [role="slider"], [role^="menuitem"], [contenteditable]:not([contenteditable="false"]), [data-backspace-stream-zoom]',
+          'button, a[href], input, select, textarea, label, summary, [role="button"], [role="slider"], [role^="menuitem"], [contenteditable]:not([contenteditable="false"]), [data-backspace-stream-zoom], [data-voice-chrome]',
         )) return true;
       }
       return false;
