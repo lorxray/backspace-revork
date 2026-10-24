@@ -54,6 +54,11 @@ export function logScreenShareFailure(
 type EncoderCodec = 'h264' | 'vp9' | 'vp8';
 type H264Parameters = { profile?: string; packetizationMode?: '0' | '1' };
 
+function startupBitrate(fmtp: string | undefined): number | undefined {
+  const match = /(?:^|;)\s*x-google-start-bitrate\s*=\s*(\d+)\s*(?:;|$)/i.exec(fmtp ?? '');
+  return match ? diagnosticNumber(Number(match[1]), 10_000_000) : undefined;
+}
+
 interface DiagnosticStatsEntry extends RTCStats {
   kind?: string;
   mediaType?: string;
@@ -166,6 +171,7 @@ export function logScreenShareEncoder(
         fps: diagnosticNumber(entry.framesPerSecond, 1000),
         qualityLimitation,
         targetBitrate: diagnosticNumber(entry.targetBitrate),
+        startBitrateKbps: startupBitrate(selectedCodec?.sdpFmtpLine),
       }];
     }).sort((a, b) => b.bytesSent - a.bytesSent || b.framesEncoded - a.framesEncoded).slice(0, 3);
     const pair = (selectedPairId ? pairs.get(selectedPairId) : undefined)

@@ -24,7 +24,7 @@ const encoderPayload = () => ({
     codec: 'h264', profile: '64001f', packetizationMode: '1', rid: 'q',
     implementation: 'SimulcastEncoderAdapter (OpenH264)', powerEfficient: false,
     bytesSent: 1000, framesEncoded: 10, width: 3440, height: 1440, fps: 10,
-    qualityLimitation: 'bandwidth',
+    qualityLimitation: 'bandwidth', startBitrateKbps: 22050,
   }],
   capabilities: [{ profile: '64001f', packetizationMode: '1' }, { profile: '42e01f', packetizationMode: '1' }],
 });

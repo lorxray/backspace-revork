@@ -74,6 +74,17 @@ export function usePointerReveal(
     reveal();
 
     const handlePointerActivity = (event: Event): void => {
+      // Native video/fullscreen surfaces can route input to the document
+      // instead of the player. Scope that fallback to the player's bounds.
+      const path = event.composedPath();
+      if (!path.includes(target)) {
+        if (event.target !== document && event.target !== window) return;
+        const pointer = event as MouseEvent;
+        const rect = target.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0 || !Number.isFinite(pointer.clientX) || !Number.isFinite(pointer.clientY)
+          || pointer.clientX < rect.left || pointer.clientX >= rect.right
+          || pointer.clientY < rect.top || pointer.clientY >= rect.bottom) return;
+      }
       const overChrome =
         event.target instanceof Element && event.target.closest(`[${VOICE_CHROME_ATTR}]`) !== null;
       reveal(overChrome);
@@ -82,11 +93,11 @@ export function usePointerReveal(
     // Observe before video/zoom/menu handlers can stop bubbling. Mouse events
     // also cover native desktop surfaces that do not forward pointer activity.
     const activityEvents = ['pointermove', 'pointerdown', 'pointerenter', 'mousemove', 'mousedown', 'wheel'] as const;
-    for (const name of activityEvents) target.addEventListener(name, handlePointerActivity, { capture: true, passive: true });
+    for (const name of activityEvents) document.addEventListener(name, handlePointerActivity, { capture: true, passive: true });
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
-      for (const name of activityEvents) target.removeEventListener(name, handlePointerActivity, true);
+      for (const name of activityEvents) document.removeEventListener(name, handlePointerActivity, true);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       clearIdleTimer();
     };

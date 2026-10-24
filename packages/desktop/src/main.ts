@@ -33,6 +33,7 @@ import { loadDismissedVersion, setDismissedVersion } from './updateDismissal';
 import { purgeUpdaterCache } from './updaterCache';
 import { DESKTOP_UPDATE_FEED, ManualDesktopUpdater } from './desktopUpdates';
 import { PortableDesktopUpdater } from './portableUpdater';
+import { repairLegacyPortableName } from './portableUpdateInstaller';
 import { canDownloadUpdate, installWithConsent } from './updateConsent';
 import {
   UpdateStatusStore,
@@ -1407,6 +1408,12 @@ if (!gotTheLock) {
   // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
   app.whenReady().then(async () => {
+    const portableTarget = app.isPackaged ? getPortableExecutable() : null;
+    if (portableTarget && await repairLegacyPortableName({ target: portableTarget, version: app.getVersion(),
+      cacheDirectory: path.join(app.getPath('userData'), 'updates/portable') })) {
+      requestQuit();
+      return;
+    }
     const webRoot = app.isPackaged
       ? path.join(process.resourcesPath, 'web-client')
       : path.join(__dirname, 'web-client');

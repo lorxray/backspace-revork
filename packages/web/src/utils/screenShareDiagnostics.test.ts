@@ -20,7 +20,8 @@ describe('screen-share encoder diagnostics', () => {
   it('records startup targets and the selected network estimate without persisting candidate addresses', () => {
     const output = vi.spyOn(console, 'info').mockImplementation(() => {});
     logScreenShareEncoder('h264', capture(), report([
-      { type: 'outbound-rtp', kind: 'video', mimeType: 'video/H264', targetBitrate: 2_000_000 },
+      { id: 'codec', type: 'codec', mimeType: 'video/H264', sdpFmtpLine: 'profile-level-id=640020;x-google-start-bitrate=22050' },
+      { type: 'outbound-rtp', kind: 'video', codecId: 'codec', targetBitrate: 2_000_000 },
       { id: 'selected', type: 'candidate-pair', state: 'succeeded', availableOutgoingBitrate: 3_000_000,
         currentRoundTripTime: 0.035, localCandidateId: 'private-local', remoteCandidateId: 'private-remote' },
       { type: 'transport', selectedCandidatePairId: 'selected' },
@@ -30,7 +31,7 @@ describe('screen-share encoder diagnostics', () => {
     const message = String(output.mock.calls[0]![0]);
     expect(JSON.parse(message.slice(PREFIX.length))).toMatchObject({
       requestedMaxBitrate: 15_000_000,
-      encoders: [{ targetBitrate: 2_000_000 }],
+      encoders: [{ targetBitrate: 2_000_000, startBitrateKbps: 22050 }],
       network: { availableOutgoingBitrate: 3_000_000, roundTripTimeMs: 35 },
     });
     expect(message).not.toMatch(/private|selectedCandidatePairId|localCandidateId/);

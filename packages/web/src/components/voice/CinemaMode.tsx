@@ -108,7 +108,7 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
   const enforcement = getSpaceEnforcementState();
   return createPortal(
     <div ref={rootRef} data-cinema-player role="dialog" aria-modal="true" aria-label={t('cinema.title')} tabIndex={-1}
-      className={`fixed inset-0 z-[500] overflow-hidden bg-black text-white outline-none ${visible ? '' : 'cursor-none'}`}
+      className={`fixed inset-0 z-[500] isolate overflow-hidden bg-black text-white outline-none ${visible ? '' : 'cursor-none'}`}
       style={{ width: 'calc(100 * var(--app-vw, 1vw))', height: 'calc(100 * var(--app-vh, 1vh))' }}
       onContextMenu={event => event.preventDefault()}
       onPointerMove={event => {
@@ -128,10 +128,12 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
           event.preventDefault(); (event.shiftKey ? last : first)?.focus();
         } else if (event.shiftKey && active === first) { event.preventDefault(); last?.focus(); }
       }}>
-      <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain bg-black" />
-      {(!track || ended) && <div role="status" className="absolute inset-0 flex items-center justify-center text-white/70 text-sm">{t('cinema.waiting')}</div>}
+      <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 z-0 w-full h-full object-contain bg-black pointer-events-none" />
+      {/* Keep hit testing on a DOM surface above the native video at every zoom. */}
+      <div data-cinema-surface aria-hidden="true" className="absolute inset-0 z-10" />
+      {(!track || ended) && <div role="status" className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center text-white/70 text-sm">{t('cinema.waiting')}</div>}
       <div data-testid="cinema-controls" {...{ [VOICE_CHROME_ATTR]: '' }}
-        className={`absolute bottom-0 inset-x-0 px-4 pt-12 pb-5 transition-opacity duration-300 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`absolute bottom-0 inset-x-0 z-20 px-4 pt-12 pb-5 transition-opacity duration-300 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onFocusCapture={() => setControlsFocused(true)}
         onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setControlsFocused(false); }}>
         <div className="mx-auto max-w-6xl flex flex-wrap justify-center items-center gap-3">

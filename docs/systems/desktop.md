@@ -1581,6 +1581,15 @@ not shell command text. The helper source is
 `resources/portable-update-helper.cs`; `buildPortableUpdaterHelper.cjs` compiles
 it with the Windows .NET Framework compiler during Windows packaging.
 
+For a standard `Backspace-<version>-portable-x64.exe` filename, installation
+also renames the executable to the installed version before restarting it.
+Custom filenames remain unchanged. An existing destination is never overwritten;
+a failed restart restores both the original contents and filename. On the first
+launch after an update installed by <=1.11.16, a successful legacy install record
+and matching SHA-256 allow one rename-only restart before opening the UI. That
+repair preserves the older backup and records its attempt before quitting so
+a failure cannot cause a restart loop. It never downloads or installs anything.
+
 Extracted ZIP builds have no outer portable launcher and continue to offer
 manual downloads. The settings button, recovery action and periodic check
 share the selected updater. Network errors remain failures rather than being

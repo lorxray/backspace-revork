@@ -202,7 +202,7 @@ export class PortableDesktopUpdater extends ManualDesktopUpdater {
     this.installing = true;
     const ready = this.ready;
     const install = this.options.install ?? launchPortableReplacement;
-    void install({ target: this.options.target, updateFile: ready.file, sha256: ready.sha256, cacheDirectory: this.options.cacheDirectory, relaunch: true })
+    void install({ target: this.options.target, version: ready.version, updateFile: ready.file, sha256: ready.sha256, cacheDirectory: this.options.cacheDirectory, relaunch: true })
       .then(async () => {
         this.ready = null;
         await fs.promises.rm(ready.file, { force: true }).catch(() => {});

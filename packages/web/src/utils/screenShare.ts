@@ -5,6 +5,7 @@ import type { ScreenShareConfig, ScreenShareAudioState } from '../stores/voiceSt
 import { getStreamHostLimits } from './streamHostLimits';
 import { getPublisherPC, getMediaStreamTrack } from './livekitInternals';
 import { installScreenShareEncoderLifecycle } from './screenShareEncoderLifecycle';
+import { installScreenShareStartupBitrate } from './screenShareStartupBitrate';
 import { broadcastVoiceStatus } from './voice';
 import { encodeShareSignal, type ShareSignal } from './streamWatchProtocol';
 import { activate as activateHwOverdrive, deactivate as deactivateHwOverdrive } from './hwOverdrive';
@@ -692,6 +693,7 @@ export async function publishScreenShare(
   try {
     videoTrack.contentHint = opts.contentHint;
     installScreenShareEncoderLifecycle(room);
+    installScreenShareStartupBitrate(room);
     await room.localParticipant.publishTrack(videoTrack, {
       source: Track.Source.ScreenShare,
       videoCodec: opts.publish.videoCodec,

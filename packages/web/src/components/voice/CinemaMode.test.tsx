@@ -10,6 +10,7 @@ import { useContextMenuStore } from '../../stores/contextMenuStore';
 import { enterCinemaMode } from '../../utils/cinemaMode';
 import { POINTER_REVEAL_IDLE_MS } from '../../hooks/usePointerReveal';
 import type { ParticipantInfo } from '../../hooks/useLiveKit';
+import { installStreamZoom } from '../../../../desktop/src/streamZoom';
 
 vi.mock('../../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({ playSound: vi.fn() }) } }));
 vi.mock('../../hooks/useLiveKit', () => ({ getActiveRoom: () => null, setStreamSubscription: vi.fn() }));
@@ -24,6 +25,7 @@ let exitFullscreen: ReturnType<typeof vi.fn>;
 let attached: Set<HTMLVideoElement>;
 let participant: ParticipantInfo;
 let stop: ReturnType<typeof vi.fn>;
+let removeZoom: (() => void) | undefined;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -46,6 +48,7 @@ beforeEach(() => {
   useVoiceStore.setState({ ...useVoiceStore.getInitialState(), isLiveKitConnected: true, voiceConnectionStatus: 'connected', participants: [participant], watchingStreams: new Set(['ada']), currentVoiceChannelId: 'channel' });
 });
 afterEach(() => {
+  removeZoom?.(); removeZoom = undefined;
   cleanup();
   useCinemaStore.getState().close();
   useContextMenuStore.getState().close();
@@ -61,6 +64,41 @@ const enter = () => fireEvent.click(screen.getByRole('button', { name: 'Cinema m
 const exit = () => fireEvent.click(screen.getByRole('button', { name: 'Exit cinema mode (Esc)' }));
 
 describe('cinema viewing lifecycle', () => {
+  it('reveals usable controls at 100%, after zoom and after resetting to 100%', () => {
+    view(); enter();
+    const player = screen.getByRole('dialog');
+    const surface = player.querySelector<HTMLElement>('[data-cinema-surface]')!;
+    const controls = screen.getByTestId('cinema-controls');
+    vi.spyOn(player, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720,
+    } as DOMRect);
+    removeZoom = installStreamZoom();
+    const zoom = player.querySelector('[data-backspace-stream-zoom]')!.shadowRoot!;
+    const reset = zoom.querySelector<HTMLButtonElement>('[aria-label="Reset zoom"]')!;
+    const plus = zoom.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!;
+    expect(reset).toHaveTextContent('100%');
+    expect(player.querySelector('video')).toHaveClass('z-0', 'pointer-events-none');
+    expect(surface).toHaveClass('z-10');
+    expect(controls).toHaveClass('z-20');
+    act(() => vi.advanceTimersByTime(POINTER_REVEAL_IDLE_MS + 1));
+    expect(controls).toHaveClass('opacity-0');
+    fireEvent.mouseMove(surface);
+    expect(controls).toHaveClass('opacity-100');
+    fireEvent.click(screen.getByRole('button', { name: 'Mute film' }));
+    expect(useVoiceStore.getState().streamMutes.get('ada')).toBe(true);
+    fireEvent.click(plus);
+    expect(reset).toHaveTextContent('125%');
+    fireEvent.click(reset);
+    expect(reset).toHaveTextContent('100%');
+    fireEvent.pointerMove(surface);
+    act(() => vi.advanceTimersByTime(POINTER_REVEAL_IDLE_MS + 1));
+    expect(controls).toHaveClass('opacity-0');
+    fireEvent.mouseMove(document, { clientX: 640, clientY: 650 });
+    expect(controls).toHaveClass('opacity-100');
+    fireEvent.change(screen.getByRole('slider', { name: 'Film volume' }), { target: { value: '65' } });
+    expect(useVoiceStore.getState().streamVolumes.get('ada')).toBe(65);
+  });
+
   it('includes injected zoom shadow buttons in the keyboard focus loop', () => {
     view(); enter();
     const player = screen.getByRole('dialog');

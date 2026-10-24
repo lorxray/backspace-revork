@@ -30,6 +30,26 @@ afterEach(() => {
 });
 
 describe('usePointerReveal', () => {
+  it('recovers native fullscreen input routed to the document only inside the player', () => {
+    vi.useFakeTimers();
+    const view = render(<Probe active />);
+    vi.spyOn(view.getByTestId('surface'), 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 50, right: 900, bottom: 650, width: 800, height: 600,
+    } as DOMRect);
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    fireEvent.mouseMove(document, { clientX: 50, clientY: 100 });
+    expect(view.getByTestId('state')).toHaveTextContent('hidden');
+    fireEvent.mouseMove(document, { clientX: 450, clientY: 300 });
+    expect(view.getByTestId('state')).toHaveTextContent('revealed');
+    act(() => vi.advanceTimersByTime(IDLE_MS));
+    const sibling = document.createElement('button');
+    document.body.append(sibling);
+    fireEvent.mouseMove(sibling, { clientX: 450, clientY: 300 });
+    expect(view.getByTestId('state')).toHaveTextContent('hidden');
+    sibling.remove();
+    view.unmount();
+  });
+
   it('reveals controls when zooming with the wheel without moving the pointer', () => {
     vi.useFakeTimers();
     const view = render(<Probe active />);

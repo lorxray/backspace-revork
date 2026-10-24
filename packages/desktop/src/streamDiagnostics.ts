@@ -99,6 +99,10 @@ function parseEncoder(input: JsonObject): JsonObject | null {
       if (!number(entry.targetBitrate, Number.MAX_SAFE_INTEGER)) return null;
       safe.targetBitrate = entry.targetBitrate;
     }
+    if (entry.startBitrateKbps !== undefined) {
+      if (!number(entry.startBitrateKbps, 10_000_000)) return null;
+      safe.startBitrateKbps = entry.startBitrateKbps;
+    }
     if (entry.qualityLimitation !== undefined) {
       const reason = oneOf(entry.qualityLimitation, ['none', 'cpu', 'bandwidth', 'other']);
       if (!reason) return null;

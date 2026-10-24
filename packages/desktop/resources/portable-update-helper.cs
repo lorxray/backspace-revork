@@ -11,6 +11,8 @@ using System.Threading;
 [DataContract]
 class InstallConfig {
     [DataMember] public string Target;
+    [DataMember] public string Destination;
+    [DataMember] public bool RenameOnly;
     [DataMember] public string Stage;
     [DataMember] public string Backup;
     [DataMember] public string Sha256;
@@ -26,6 +28,7 @@ class InstallResult {
     [DataMember] public bool success;
     [DataMember] public bool rolledBack;
     [DataMember] public string backup;
+    [DataMember] public string executable;
     [DataMember] public string error;
 }
 class PortableUpdateHelper {
@@ -49,22 +52,32 @@ class PortableUpdateHelper {
     }
     static int Main(string[] args) {
         InstallConfig c = null;
-        bool replaced = false, pathsValid = false, parentExited = false;
+        bool replaced = false, renamed = false, pathsValid = false, parentExited = false;
         try {
             if (args.Length != 1) return 1;
             using (var file = File.OpenRead(args[0]))
                 c = (InstallConfig)new DataContractJsonSerializer(typeof(InstallConfig)).ReadObject(file);
+            c.Target = Path.GetFullPath(c.Target);
+            c.Destination = String.IsNullOrEmpty(c.Destination) ? c.Target : Path.GetFullPath(c.Destination);
             string directory = Path.GetDirectoryName(Path.GetFullPath(c.Target));
-            foreach (string file in new[] { c.Stage, c.Backup }) {
+            bool changingName = !String.Equals(c.Target, c.Destination, StringComparison.OrdinalIgnoreCase);
+            if (changingName && (!String.Equals(Path.GetDirectoryName(c.Destination), directory, StringComparison.OrdinalIgnoreCase)
+                || !Regex.IsMatch(Path.GetFileName(c.Destination), @"^Backspace-\d+\.\d+\.\d+-portable-x64\.exe$")))
+                throw new InvalidOperationException("Invalid executable destination");
+            if (changingName && (File.Exists(c.Destination) || Directory.Exists(c.Destination)))
+                throw new InvalidOperationException("Destination already exists; both executables preserved");
+            foreach (string file in c.RenameOnly ? new string[0] : new[] { c.Stage, c.Backup }) {
                 if (!String.Equals(Path.GetDirectoryName(Path.GetFullPath(file)), directory, StringComparison.OrdinalIgnoreCase)
                     || String.Equals(file, c.Target, StringComparison.OrdinalIgnoreCase)
                     || !Regex.IsMatch(Path.GetFileName(file), @"^\.backspace-update-[a-f0-9-]+\.(new|backup)\.exe$"))
                     throw new InvalidOperationException("Invalid replacement path");
             }
-            if (c.Stage == c.Backup || !Regex.IsMatch(c.Sha256, "^[a-f0-9]{64}$"))
+            if ((!c.RenameOnly && c.Stage == c.Backup) || (c.RenameOnly && (!changingName || c.Stage != null || c.Backup != null))
+                || !Regex.IsMatch(c.Sha256, "^[a-f0-9]{64}$") || !Regex.IsMatch(c.OriginalSha256, "^[a-f0-9]{64}$")
+                || (c.RenameOnly && c.Sha256 != c.OriginalSha256))
                 throw new InvalidOperationException("Invalid replacement data");
             pathsValid = true;
-            if (Hash(c.Stage) != c.Sha256) throw new InvalidOperationException("Staged update checksum mismatch");
+            if (!c.RenameOnly && Hash(c.Stage) != c.Sha256) throw new InvalidOperationException("Staged update checksum mismatch");
             using (var parent = Process.GetProcessById(c.ParentPid)) {
                 IntPtr handle = parent.Handle;
                 File.WriteAllText(c.Ready, "ready", Encoding.UTF8);
@@ -78,11 +91,14 @@ class PortableUpdateHelper {
             if (File.Exists(c.Cancel)) throw new InvalidOperationException("Update preparation cancelled");
             DateTime replaceDeadline = DateTime.UtcNow.AddSeconds(90);
             while (true) {
-                if (Hash(c.Stage) != c.Sha256) throw new InvalidOperationException("Staged update checksum changed");
+                if (!c.RenameOnly && Hash(c.Stage) != c.Sha256) throw new InvalidOperationException("Staged update checksum changed");
                 if (Hash(c.Target) != c.OriginalSha256) throw new InvalidOperationException("Original executable changed; refusing replacement");
+                if (changingName && (File.Exists(c.Destination) || Directory.Exists(c.Destination)))
+                    throw new InvalidOperationException("Destination already exists; both executables preserved");
                 try {
                     // Wait for the NSIS outer launcher to release the portable EXE.
-                    File.Replace(c.Stage, c.Target, c.Backup);
+                    if (c.RenameOnly) { File.Move(c.Target, c.Destination); renamed = true; }
+                    else File.Replace(c.Stage, c.Target, c.Backup);
                     replaced = true;
                     break;
                 } catch (IOException) {
@@ -90,20 +106,22 @@ class PortableUpdateHelper {
                     Thread.Sleep(250);
                 }
             }
-            if (Hash(c.Target) != c.Sha256) throw new InvalidOperationException("Installed update checksum mismatch");
+            if (changingName && !renamed) { File.Move(c.Target, c.Destination); renamed = true; }
+            if (Hash(c.Destination) != c.Sha256) throw new InvalidOperationException("Installed update checksum mismatch");
             if (c.Relaunch) {
-                using (var started = Launch(c.Target))
+                using (var started = Launch(c.Destination))
                     if (started.WaitForExit(3000) && started.ExitCode != 0)
                         throw new InvalidOperationException("Updated application failed to start");
             }
-            Save(c, new InstallResult { success = true, backup = c.Backup });
+            Save(c, new InstallResult { success = true, backup = c.Backup, executable = c.Destination });
             return 0;
         } catch (Exception error) {
             bool rolledBack = false;
             string failure = error.Message;
-            if (replaced && File.Exists(c.Backup)) {
+            if (replaced) {
                 try {
-                    File.Replace(c.Backup, c.Target, null);
+                    if (renamed) File.Move(c.Destination, c.Target);
+                    if (!c.RenameOnly) File.Replace(c.Backup, c.Target, null);
                     rolledBack = true;
                 } catch (Exception rollback) { failure += "; rollback: " + rollback.Message; }
             }

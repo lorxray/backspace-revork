@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { PortableDesktopUpdater } from './portableUpdater';
-import { fileSha256, launchPortableReplacement } from './portableUpdateInstaller';
+import { fileSha256, launchPortableReplacement, portableInstallDestination, repairLegacyPortableName } from './portableUpdateInstaller';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -70,7 +70,7 @@ describe('portable update consent and verified installation', () => {
     f.updater.quitAndInstall('1.11.11'); f.updater.quitAndInstall('1.11.11');
     expect(f.quit).not.toHaveBeenCalled();
     expect(f.install).toHaveBeenCalledOnce();
-    expect(f.install).toHaveBeenCalledWith(expect.objectContaining({ target: f.target, sha256: f.sha256, relaunch: true }));
+    expect(f.install).toHaveBeenCalledWith(expect.objectContaining({ target: f.target, version: '1.11.11', sha256: f.sha256, relaunch: true }));
     acknowledge(); await vi.waitFor(() => expect(f.quit).toHaveBeenCalledOnce());
     expect(f.updater.hasReadyUpdate).toBe(false);
     expect(fs.readdirSync(f.cacheDirectory)).toEqual([]);
@@ -166,7 +166,51 @@ describe('portable update consent and verified installation', () => {
   it('detects altered bytes before starting a helper or changing the original', async () => {
     const f=fixture(); await download(f); const updateFile=executable(f);
     expect(await fileSha256(updateFile)).toBe(f.sha256); fs.writeFileSync(updateFile,'tampered');
-    await expect(launchPortableReplacement({target:f.target,updateFile,sha256:f.sha256,cacheDirectory:f.cacheDirectory,relaunch:true})).rejects.toThrow('checksum changed');
+    await expect(launchPortableReplacement({target:f.target,version:'1.11.11',updateFile,sha256:f.sha256,cacheDirectory:f.cacheDirectory,relaunch:true})).rejects.toThrow('checksum changed');
     expect(fs.readFileSync(f.target,'utf8')).toBe('original portable'); expect(fs.readdirSync(f.root).filter(name=>name.startsWith('.backspace'))).toEqual([]);
+  });
+});
+
+describe('portable executable version names', () => {
+  it('advances standard versioned names and preserves user-chosen names', () => {
+    const f = fixture();
+    expect(portableInstallDestination(path.join(f.root, 'Backspace-1.11.15-portable-x64.exe'), '1.11.17'))
+      .toBe(path.join(f.root, 'Backspace-1.11.17-portable-x64.exe'));
+    expect(portableInstallDestination(f.target, '1.11.17')).toBe(f.target);
+    expect(() => portableInstallDestination(f.target, '../client')).toThrow('version');
+  });
+
+  it('refuses to overwrite an existing versioned executable before quitting', async () => {
+    const f = fixture();
+    const target = path.join(f.root, 'Backspace-1.11.10-portable-x64.exe');
+    const destination = path.join(f.root, 'Backspace-1.11.11-portable-x64.exe');
+    fs.writeFileSync(target, 'original'); fs.writeFileSync(destination, 'unrelated existing file');
+    await expect(launchPortableReplacement({ target, version: '1.11.11', updateFile: target,
+      sha256: await fileSha256(target), cacheDirectory: f.cacheDirectory, relaunch: true })).rejects.toThrow('already exists');
+    expect(fs.readFileSync(target, 'utf8')).toBe('original');
+    expect(fs.readFileSync(destination, 'utf8')).toBe('unrelated existing file');
+  });
+
+  it.each(['success', 'failed', 'tampered', 'new-helper', 'already-attempted', 'pending'])('repairs a legacy %s install at most once', async mode => {
+    const f = fixture();
+    const target = path.join(f.root, 'Backspace-1.11.15-portable-x64.exe');
+    fs.writeFileSync(target, f.binary);
+    const directory = path.join(f.cacheDirectory, 'install-12345678-1234-1234-1234-123456789abc');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'config.json'), JSON.stringify({ Target: target,
+      Sha256: mode === 'tampered' ? '0'.repeat(64) : f.sha256,
+      ...(mode === 'new-helper' ? { Destination: target } : {}),
+    }));
+    const saveResult = () => fs.writeFileSync(path.join(directory, 'result.json'), JSON.stringify({ success: mode !== 'failed' }));
+    if (mode === 'pending') setTimeout(saveResult, 50); else saveResult();
+    if (mode === 'already-attempted') fs.writeFileSync(path.join(directory, 'filename-repair-attempted'), '1.11.17');
+    const launch = vi.fn().mockResolvedValue({ configPath: '', pid: 1 });
+    const options = { target, version: '1.11.17', cacheDirectory: f.cacheDirectory };
+    const shouldRepair = mode === 'success' || mode === 'pending';
+    expect(await repairLegacyPortableName(options, launch)).toBe(shouldRepair);
+    if (shouldRepair) expect(launch).toHaveBeenCalledWith(expect.objectContaining({ target, version: '1.11.17', updateFile: target, sha256: f.sha256 }));
+    else expect(launch).not.toHaveBeenCalled();
+    expect(await repairLegacyPortableName(options, launch)).toBe(false);
+    expect(launch).toHaveBeenCalledTimes(shouldRepair ? 1 : 0);
   });
 });

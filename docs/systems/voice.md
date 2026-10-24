@@ -430,6 +430,18 @@ ScreenShareConfig {
   sender retry. The non-standard
   `minBitrate` member was removed because Chromium discarded it during WebIDL
   dictionary conversion; it never enforced a bitrate floor.
+- `screenShareStartupBitrate` follows `LocalSenderCreated`, including a full
+  reconnect, and seeds the first remote answer for each new screen sender.
+  LiveKit 2.22.3 hints only the first offered codec payload: negotiating H.264
+  High instead of Main, or an SFU omitting the hint in its answer, can leave
+  Chromium starting at 300 kbps. The negotiated screen codec receives the SDK's
+  90% start hint, based on the sum of its independent encoding caps. Shared
+  BUNDLE payloads retain consistent fmtp; codec profiles and bitrate ceilings
+  are preserved. Later renegotiations do not reseed the bandwidth estimate,
+  and no minimum bitrate is forced. Encoder logs include `startBitrateKbps`.
+  `pnpm --filter @backspace/desktop test:screen-share-startup` exercises real
+  Chromium/LiveKit negotiation with local peers, including an H.264 High
+  answer without a hint, repeated starts, and VP9.
 
 ### Viewer quality
 
