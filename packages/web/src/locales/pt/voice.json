@@ -1,4 +1,35 @@
 {
+  "vibe": {
+    "set": "Definir o clima",
+    "change": "Alterar o clima",
+    "remove": "Remover o clima",
+    "description": "Escolha um GIF para este canal de voz. O cartão aparece enquanto você estiver conectado a esta chamada.",
+    "backToCategories": "← Categorias",
+    "searchDisabled": "A pesquisa de GIFs não está configurada. Um administrador pode adicionar uma chave Klipy em Configurações do servidor → Geral → Pesquisa de GIFs. Você também pode colar um link direto para uma imagem.",
+    "categories": {
+      "join": "Entre na chamada",
+      "chill": "Relaxar e estudar",
+      "cats": "Gatos",
+      "anime": "Anime",
+      "mushoku": "Mushoku Tensei",
+      "minecraft": "Minecraft",
+      "valorant": "Valorant",
+      "bored": "Tédio",
+      "happy": "Alegria"
+    },
+    "source": "Origem da imagem",
+    "linkTab": "Colar um link",
+    "gifTab": "Escolher GIF",
+    "urlLabel": "Link do GIF ou da imagem",
+    "urlHint": "Cole um link HTTPS direto para um GIF ou uma imagem.",
+    "invalidUrl": "Insira um link HTTPS válido para uma imagem.",
+    "imageFailed": "Não foi possível carregar a imagem. Tente outro link direto para uma imagem.",
+    "tooLong": "Este link é longo demais para ser salvo com os dados existentes do canal. Tente um link mais curto.",
+    "imageAlt": "Clima do canal de voz",
+    "preview": "Prévia do clima",
+    "recent": "Recentes",
+    "selectRecent": "Selecionar imagem recente {{number}}"
+  },
   "cinema": {
     "title": "Modo cinema",
     "enter": "Modo cinema",

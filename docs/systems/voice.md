@@ -10,6 +10,68 @@ Source files:
 
 ## Voice Channel Join Flow
 
+### Channel vibe (client-only image card)
+
+The sidebar's `VoiceChannelVibe` displays a shared GIF/image above a voice
+channel's participants only while this client is connected to that channel
+(including a temporary LiveKit reconnect). The image, set button and editor
+are unmounted on leaving, switching channels or a terminal disconnect. Merely
+opening/viewing a channel does not display them. This is a display rule, not
+an access-control change: the topic remains ordinary channel metadata.
+Setting, replacing and removing it require the channel's existing
+`MANAGE_CHANNELS` permission. The client uses `spaceStore.updateChannel` and
+the existing `channel_updated` broadcast; no server changes are needed.
+
+`utils/voiceChannelVibe.ts` encodes an HTTPS image URL in the voice channel's
+`topic` with the `backspace:voice-vibe:v1:` prefix and a JSON object containing
+`url` and the previous `topic`. Replacement preserves that original topic;
+removal restores it. Updates over the existing 1024-character topic limit are
+refused without truncation. Ordinary topics and malformed metadata are not
+rendered as images. Older clients keep the topic but do not display the card.
+
+The editor supports direct image links, the existing GIF catalog when enabled
+on the home instance, and nine locally remembered selections. The catalog
+offers a text search and nine curated categories (voice invitations, chill,
+cats, anime, Mushoku Tensei, Minecraft, Valorant, bored and happy). Opening the
+category home automatically fetches each uncached category's first result page
+to populate all nine previews. Cached thumbnails appear immediately. Opening
+a category reuses that same result page, avoiding a second API request just
+to load its results. No new server routes are required.
+`gifSearchCache` persists successful result metadata and original
+media URLs for one hour, retaining at most 40 pages (including trending).
+It shares in-flight requests and caches pagination separately. At most two
+API requests run concurrently; an interactive search goes before queued
+category previews. A 429 pauses uncached requests across all GIF pickers until
+the server's retry delay expires, while cached results remain available.
+Category preview failures show a retry control; successful cached categories
+are not fetched again on retry. Empty responses
+and errors are not cached, because the server also represents upstream errors
+as empty pages. Media files are not stored or mirrored by this cache.
+If Klipy is not configured, the
+catalog tab explains the existing server setting rather than disappearing.
+The shared GIF picker debounces queries, drops stale search/pagination replies,
+and offers retry and explicit pagination controls. A `RateLimitError` from
+the existing API is shown with the server's retry delay and a countdown;
+manual retry is disabled until the wait ends. Other load failures retain
+their ordinary error message. This applies to both search and pagination.
+Upstream Klipy errors that the server converts into an empty successful
+response cannot be classified by this client-only change. It saves only
+after a successful image preview. Recent selections are recorded after a
+successful channel update. Local file uploads are not part of this feature.
+
+`AnimatedImage` is used by the voice card, category thumbnails, GIF results,
+recent selections, chat GIF messages, animated attachments and GIF/WebP image
+embeds. In the desktop renderer its native
+`ImageDecoder` plays three complete cycles, retains the last frame on a canvas,
+and closes its decoder. Hover/focus restarts from the first frame and plays
+until leave/blur. Going offscreen or hiding the document also stops playback;
+reduced-motion skips the initial autoplay. Original image URLs remain intact.
+Decoded frames are released immediately after painting. Where ImageDecoder is
+unavailable or a remote host refuses CORS, the native image has an eight-second
+autoplay window and then a canvas still, with hover playback as a fallback.
+
+### Joining a channel
+
 1. Client sends `voice_join { channelId }` via WS
 2. Server checks CONNECT permission, enforces one-room-per-user
 3. Server loads voice restrictions from DB (space mute/deafen)

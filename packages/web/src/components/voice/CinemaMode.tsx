@@ -109,7 +109,7 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
   return createPortal(
     <div ref={rootRef} data-cinema-player role="dialog" aria-modal="true" aria-label={t('cinema.title')} tabIndex={-1}
       className={`fixed inset-0 z-[500] isolate overflow-hidden bg-black text-white outline-none ${visible ? '' : 'cursor-none'}`}
-      style={{ width: 'calc(100 * var(--app-vw, 1vw))', height: 'calc(100 * var(--app-vh, 1vh))' }}
+      style={{ width: 'calc(100 * var(--app-vw))', height: 'calc(100 * var(--app-vh))' }}
       onContextMenu={event => event.preventDefault()}
       onPointerMove={event => {
         if (event.target instanceof Element && !event.target.closest(`[${VOICE_CHROME_ATTR}]`)) setControlsFocused(false);

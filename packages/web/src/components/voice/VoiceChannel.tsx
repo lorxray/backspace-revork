@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { useVoiceStore, type VoiceChannelElapsed } from '../../stores/voiceStore';
+import { isInVoiceRoom, useVoiceStore, type VoiceChannelElapsed } from '../../stores/voiceStore';
 import { useSpaceStore } from '../../stores/spaceStore';
 import { useSelfIdInChannel } from '../../utils/channelUser';
 import { useContextMenuStore, type ContextMenuItem } from '../../stores/contextMenuStore';
@@ -8,6 +8,7 @@ import { VoiceUserRow } from './VoiceUserRow';
 import { useTranslation } from 'react-i18next';
 import { useFormatters } from '../../i18n/formatters';
 import { useSharedSecondBeat } from '../../hooks/useSharedSecondBeat';
+import { VoiceChannelVibe } from './VoiceChannelVibe';
 
 const EMPTY_VOICE_USERS: string[] = [];
 
@@ -41,6 +42,7 @@ function VoiceChannelTimer({ observation }: { observation: VoiceChannelElapsed }
 interface VoiceChannelProps {
   channelId: string;
   channelName: string;
+  channelTopic?: string | null;
   onClick: () => void;
   locked?: boolean;
   canManage?: boolean;
@@ -62,7 +64,7 @@ interface VoiceChannelProps {
 }
 
 /** Wrapper component for the volume slider so it can use hooks (useState). */
-export function VoiceChannel({ channelId, channelName, onClick, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
+export function VoiceChannel({ channelId, channelName, channelTopic = null, onClick, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
   const { t } = useTranslation(['voice', 'common']);
   const serverVoiceUsers = useVoiceStore((s) => s.voiceUsers.get(channelId)) ?? EMPTY_VOICE_USERS;
   const currentVoiceChannel = useVoiceStore((s) => s.currentVoiceChannelId);
@@ -201,6 +203,10 @@ export function VoiceChannel({ channelId, channelName, onClick, locked, canManag
           )}
         </span>
       </button>
+
+      {isActive && isInVoiceRoom({ isLiveKitConnected, voiceConnectionStatus }) && (
+        <VoiceChannelVibe channelId={channelId} topic={channelTopic} canManage={!!canManage} />
+      )}
 
       {/* Connected users */}
       {voiceUsers.length > 0 && (

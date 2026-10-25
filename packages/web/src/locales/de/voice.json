@@ -1,4 +1,35 @@
 {
+  "vibe": {
+    "set": "Stimmung festlegen",
+    "change": "Stimmung ändern",
+    "remove": "Stimmung entfernen",
+    "description": "Wähle ein GIF für diesen Sprachkanal. Die Karte wird angezeigt, solange du mit diesem Anruf verbunden bist.",
+    "backToCategories": "← Kategorien",
+    "searchDisabled": "Die GIF-Suche ist nicht eingerichtet. Ein Administrator kann unter Servereinstellungen → Allgemein → GIF-Suche einen Klipy-API-Schlüssel hinzufügen. Du kannst auch einen direkten Bildlink einfügen.",
+    "categories": {
+      "join": "Komm in den Sprachkanal",
+      "chill": "Entspannen & Lernen",
+      "cats": "Katzen",
+      "anime": "Anime",
+      "mushoku": "Mushoku Tensei",
+      "minecraft": "Minecraft",
+      "valorant": "Valorant",
+      "bored": "Gelangweilt",
+      "happy": "Fröhlich"
+    },
+    "source": "Bildquelle",
+    "linkTab": "Link einfügen",
+    "gifTab": "GIF auswählen",
+    "urlLabel": "GIF- oder Bildlink",
+    "urlHint": "Füge einen direkten HTTPS-Link zu einem GIF oder Bild ein.",
+    "invalidUrl": "Gib einen gültigen HTTPS-Bildlink ein.",
+    "imageFailed": "Das Bild konnte nicht geladen werden. Versuche einen anderen direkten Bildlink.",
+    "tooLong": "Dieser Link ist zu lang, um ihn mit den vorhandenen Kanaldaten zu speichern. Versuche einen kürzeren Link.",
+    "imageAlt": "Stimmung des Sprachkanals",
+    "preview": "Stimmungsvorschau",
+    "recent": "Zuletzt verwendet",
+    "selectRecent": "Zuletzt verwendetes Bild {{number}} auswählen"
+  },
   "cinema": {
     "title": "Kinomodus",
     "enter": "Kinomodus",

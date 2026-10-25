@@ -135,7 +135,12 @@
     }
   },
   "gif": {
-    "searchPlaceholder": "Pesquisar GIFs",
+    "previewFailed": "Prévia indisponível. Clique para tentar novamente.",
+    "searchPlaceholder": "Pesquisar no KLIPY",
+    "loadMore": "Carregar mais GIFs",
+    "loadFailed": "Não foi possível carregar GIFs. Tente novamente.",
+    "rateLimited": "Muitas solicitações. Tente novamente em {{seconds}} s.",
+    "retryReady": "Você já pode tentar pesquisar novamente.",
     "noResults": "Nenhum GIF encontrado",
     "noTrending": "Nenhum GIF em alta",
     "attribution": "Fornecido pelo Klipy"

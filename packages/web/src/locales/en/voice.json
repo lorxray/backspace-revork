@@ -1,4 +1,35 @@
 {
+  "vibe": {
+    "set": "Set the vibe",
+    "change": "Change vibe",
+    "remove": "Remove vibe",
+    "description": "Choose a GIF for this voice channel. The card is shown while you are connected to this call.",
+    "backToCategories": "← Categories",
+    "searchDisabled": "GIF search is not configured. An administrator can add a Klipy API key in Server Settings → General → GIF Search. You can also paste a direct image link.",
+    "categories": {
+      "join": "Join voice",
+      "chill": "Chill & study",
+      "cats": "Cats",
+      "anime": "Anime",
+      "mushoku": "Mushoku Tensei",
+      "minecraft": "Minecraft",
+      "valorant": "Valorant",
+      "bored": "Bored",
+      "happy": "Happy"
+    },
+    "source": "Image source",
+    "linkTab": "Paste a link",
+    "gifTab": "Choose GIF",
+    "urlLabel": "GIF or image link",
+    "urlHint": "Paste a direct HTTPS link to a GIF or image.",
+    "invalidUrl": "Enter a valid HTTPS image link.",
+    "imageFailed": "Could not load the image. Try another direct image link.",
+    "tooLong": "This link is too long to save with the channel's existing data. Try a shorter link.",
+    "imageAlt": "Voice channel vibe",
+    "preview": "Vibe preview",
+    "recent": "Recent",
+    "selectRecent": "Select recent image {{number}}"
+  },
   "cinema": {
     "title": "Cinema mode",
     "enter": "Cinema mode",

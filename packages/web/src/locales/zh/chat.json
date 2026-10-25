@@ -129,7 +129,12 @@
     }
   },
   "gif": {
-    "searchPlaceholder": "搜索 GIF",
+    "previewFailed": "预览加载失败。点击重试。",
+    "searchPlaceholder": "搜索 KLIPY",
+    "loadMore": "加载更多 GIF",
+    "loadFailed": "无法加载 GIF，请重试。",
+    "rateLimited": "请求过多，请在 {{seconds}} 秒后重试。",
+    "retryReady": "现在可以重新搜索。",
     "noResults": "未找到 GIF",
     "noTrending": "暂无热门 GIF",
     "attribution": "由 Klipy 提供支持"

@@ -4,6 +4,7 @@ import type { Attachment } from '@backspace/shared';
 import { useUIStore } from '../../stores/uiStore';
 import { useTransferStore } from '../../stores/transferStore';
 import { Tooltip } from '../ui/Tooltip';
+import { AnimatedImage } from '../ui/AnimatedImage';
 import { useFormatters } from '../../i18n/formatters';
 
 interface AttachmentRendererProps {
@@ -241,14 +242,21 @@ export function AttachmentRenderer({ attachment }: AttachmentRendererProps) {
           className="relative rounded-lg overflow-hidden border border-white/[0.06]"
           style={width && height ? { aspectRatio: `${width}/${height}`, maxWidth: Math.min(width, 400), maxHeight: 300 } : undefined}
         >
-          <img
+          {mimetype === 'image/gif' || mimetype === 'image/webp' || /\.(?:gif|webp)$/i.test(originalName) ? <AnimatedImage
+            src={attUrl}
+            stickerSource={attUrl}
+            alt={originalName}
+            fit="contain"
+            className="w-full h-full max-w-[400px] max-h-[300px] cursor-pointer hover:brightness-95 transition-all"
+            onClick={() => openImagePreview(attUrl)}
+          /> : <img
             src={thumbUrl ?? attUrl}
             data-sticker-source={attUrl}
             alt={originalName}
             className="w-full h-full max-w-[400px] max-h-[300px] object-contain cursor-pointer hover:brightness-95 transition-all"
             onClick={() => openImagePreview(attUrl)}
             loading="lazy"
-          />
+          />}
         </div>
         {federationInlineBadge && <div className="mt-1">{federationInlineBadge}</div>}
       </div>

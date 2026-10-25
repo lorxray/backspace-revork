@@ -6,6 +6,7 @@ import { useSpaceStore } from '../../stores/spaceStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useContextMenuStore } from '../../stores/contextMenuStore';
 import type { MemberWithUser } from '@backspace/shared';
+import { topicWithVoiceChannelVibe } from '../../utils/voiceChannelVibe';
 
 vi.mock('../../audio/AudioManager', () => ({
   AudioManager: { getInstance: () => ({}) },
@@ -76,6 +77,53 @@ function renderChannel(canManage = false, onSettingsClick = () => {}) {
     />,
   );
 }
+
+describe('VoiceChannel vibe visibility', () => {
+  const topic = topicWithVoiceChannelVibe(null, 'https://example.com/cat.gif');
+  function renderVibe(canManage = true, channelTopic: string | null = topic) {
+    return render(<VoiceChannel channelId="voice-1" channelName="Voice" channelTopic={channelTopic} canManage={canManage} onClick={() => {}} />);
+  }
+
+  it.each([
+    { currentVoiceChannelId: null, isLiveKitConnected: false, voiceConnectionStatus: 'disconnected' as const },
+    { currentVoiceChannelId: 'voice-2', isLiveKitConnected: true, voiceConnectionStatus: 'connected' as const },
+    { currentVoiceChannelId: 'voice-1', isLiveKitConnected: false, voiceConnectionStatus: 'connecting' as const },
+    { currentVoiceChannelId: 'voice-1', isLiveKitConnected: false, voiceConnectionStatus: 'disconnected' as const },
+  ])('hides the image and editor outside a joined session: %j', (state) => {
+    useVoiceStore.setState(state);
+    const { rerender } = renderVibe();
+    expect(screen.queryByAltText('Voice channel vibe')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change vibe' })).not.toBeInTheDocument();
+    rerender(<VoiceChannel channelId="voice-1" channelName="Voice" channelTopic={null} canManage onClick={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Set the vibe' })).not.toBeInTheDocument();
+  });
+
+  it('shows the saved image to a connected participant without management permission', () => {
+    renderVibe(false);
+    expect(screen.getByAltText('Voice channel vibe')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change vibe' })).not.toBeInTheDocument();
+  });
+
+  it('offers setting a vibe only to a connected manager', () => {
+    renderVibe(true, null);
+    expect(screen.getByRole('button', { name: 'Set the vibe' })).toBeInTheDocument();
+  });
+
+  it('keeps the image visible during a temporary reconnect', () => {
+    useVoiceStore.setState({ isLiveKitConnected: false, voiceConnectionStatus: 'reconnecting' });
+    renderVibe();
+    expect(screen.getByAltText('Voice channel vibe')).toBeInTheDocument();
+  });
+
+  it('unmounts the editor and image immediately when leaving the voice channel', () => {
+    renderVibe();
+    fireEvent.click(screen.getByRole('button', { name: 'Change vibe' }));
+    expect(screen.getByText('Choose a GIF for this voice channel.', { exact: false })).toBeInTheDocument();
+    act(() => useVoiceStore.setState({ currentVoiceChannelId: null, isLiveKitConnected: false, voiceConnectionStatus: 'disconnected' }));
+    expect(screen.queryByAltText('Voice channel vibe')).not.toBeInTheDocument();
+    expect(screen.queryByText('Choose a GIF for this voice channel.', { exact: false })).not.toBeInTheDocument();
+  });
+});
 
 describe('VoiceChannel connection diagnostics', () => {
   it('attributes a poor remote connection to that participant', () => {

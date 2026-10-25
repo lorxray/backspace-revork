@@ -1316,6 +1316,7 @@ function ChannelItem({
         <VoiceChannel
           channelId={channel.id}
           channelName={channel.name}
+          channelTopic={channel.topic}
           onClick={() => canConnect && handleVoiceJoin(channel.id)}
           locked={!canConnect}
           canManage={canManage}

@@ -9,6 +9,7 @@ import type { MessageWithUser, Embed, Reaction, User } from '@backspace/shared';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { InlineMessageText } from './InlineMessageText';
 import { Avatar } from '../ui/Avatar';
+import { AnimatedImage } from '../ui/AnimatedImage';
 import { ProfileAvatar } from '../ui/ProfileAvatar';
 import { useContextMenuStore } from '../../stores/contextMenuStore';
 import { buildMessageMenuItems } from './messageMenuItems';
@@ -330,13 +331,14 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
     const selectedText = window.getSelection()?.toString() ?? '';
 
     // Detect if the right-click target is a content image (not an avatar or embed thumbnail)
-    const imgEl = (e.target as HTMLElement).closest('img') as HTMLImageElement | null;
+    const target = e.target as HTMLElement;
+    const imgEl = target.closest<HTMLElement>('[data-image-source]') ?? target.closest<HTMLElement>('img');
     const isContentImage = imgEl && !imgEl.closest('[data-avatar]') && !imgEl.closest('[data-embed-thumbnail]');
-    const imageUrl = isContentImage ? imgEl.src : null;
+    const imageUrl = isContentImage ? new URL(imgEl.dataset.imageSource ?? imgEl.getAttribute('src') ?? '', window.location.href).href : null;
     // Attachment previews may be thumbnails; collection always uses the original source.
     const stickerSource = isContentImage ? imgEl.dataset.stickerSource : null;
     // An attachment's alt is its file name; the collection keeps it without the extension.
-    const stickerName = isContentImage ? imgEl.alt.replace(/\.[^.]+$/, '').slice(0, 100) : undefined;
+    const stickerName = isContentImage ? (imgEl.dataset.imageAlt ?? imgEl.getAttribute('alt') ?? '').replace(/\.[^.]+$/, '').slice(0, 100) : undefined;
 
     // Detect right-click on a video/audio element and resolve its underlying attachment.
     // `message` is the persisted form here — pending messages return early above.
@@ -603,11 +605,11 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
           <div className="flex flex-col gap-1">
             {isGifOnly ? (
               <div className="mt-1 max-w-[400px]">
-                <img
+                <AnimatedImage
                   src={message.content!.trim()}
                   alt={t('chat:message.gifAlt')}
                   className="max-w-full max-h-[300px] rounded-lg"
-                  loading="lazy"
+                  fit="contain"
                 />
               </div>
             ) : imageEmbedSourceUrl ? (

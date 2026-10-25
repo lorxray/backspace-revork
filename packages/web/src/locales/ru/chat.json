@@ -138,7 +138,12 @@
     }
   },
   "gif": {
-    "searchPlaceholder": "Поиск GIF",
+    "previewFailed": "Превью не загрузилось. Нажмите, чтобы повторить.",
+    "searchPlaceholder": "Поиск в KLIPY",
+    "loadMore": "Показать ещё GIF",
+    "loadFailed": "Не удалось загрузить GIF. Попробуйте ещё раз.",
+    "rateLimited": "Слишком много запросов. Повторите через {{seconds}} с.",
+    "retryReady": "Можно повторить поиск.",
     "noResults": "GIF не найдены",
     "noTrending": "Нет популярных GIF",
     "attribution": "При поддержке Klipy"

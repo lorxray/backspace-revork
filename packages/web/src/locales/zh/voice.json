@@ -1,4 +1,35 @@
 {
+  "vibe": {
+    "set": "设置氛围",
+    "change": "更改氛围",
+    "remove": "移除氛围",
+    "description": "为此语音频道选择 GIF。连接到此通话时才会显示卡片。",
+    "backToCategories": "← 分类",
+    "searchDisabled": "尚未配置 GIF 搜索。管理员可以在服务器设置 → 常规 → GIF 搜索中添加 Klipy API 密钥。你也可以粘贴图片直链。",
+    "categories": {
+      "join": "来语音聊天",
+      "chill": "放松与学习",
+      "cats": "猫咪",
+      "anime": "动漫",
+      "mushoku": "无职转生",
+      "minecraft": "Minecraft",
+      "valorant": "Valorant",
+      "bored": "无聊",
+      "happy": "开心"
+    },
+    "source": "图片来源",
+    "linkTab": "粘贴链接",
+    "gifTab": "选择 GIF",
+    "urlLabel": "GIF 或图片链接",
+    "urlHint": "粘贴指向 GIF 或图片的 HTTPS 直链。",
+    "invalidUrl": "请输入有效的 HTTPS 图片链接。",
+    "imageFailed": "无法加载图片。请尝试其他图片直链。",
+    "tooLong": "此链接过长，无法与频道现有数据一起保存。请尝试更短的链接。",
+    "imageAlt": "语音频道氛围",
+    "preview": "氛围预览",
+    "recent": "最近使用",
+    "selectRecent": "选择最近使用的第 {{number}} 张图片"
+  },
   "cinema": {
     "title": "影院模式",
     "enter": "影院模式",
