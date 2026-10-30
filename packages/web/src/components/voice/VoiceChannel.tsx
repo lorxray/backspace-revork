@@ -44,6 +44,8 @@ interface VoiceChannelProps {
   channelName: string;
   channelTopic?: string | null;
   onClick: () => void;
+  onOpenChat?: () => void;
+  isChatOpen?: boolean;
   locked?: boolean;
   canManage?: boolean;
   onSettingsClick?: () => void;
@@ -64,7 +66,7 @@ interface VoiceChannelProps {
 }
 
 /** Wrapper component for the volume slider so it can use hooks (useState). */
-export function VoiceChannel({ channelId, channelName, channelTopic = null, onClick, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
+export function VoiceChannel({ channelId, channelName, channelTopic = null, onClick, onOpenChat, isChatOpen = false, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
   const { t } = useTranslation(['voice', 'common']);
   const serverVoiceUsers = useVoiceStore((s) => s.voiceUsers.get(channelId)) ?? EMPTY_VOICE_USERS;
   const currentVoiceChannel = useVoiceStore((s) => s.currentVoiceChannelId);
@@ -153,56 +155,73 @@ export function VoiceChannel({ channelId, channelName, channelTopic = null, onCl
       onDrop={dropZone?.onDrop}
       className={dropZone?.isDragOver && dropZone?.isValidTarget ? 'rounded-[8px] ring-1 ring-accent-mint/40' : ''}
     >
-      <button
-        onClick={onClick}
-        className={`relative w-full flex items-center gap-1.5 px-[10px] h-8 rounded-[6px] group transition-colors ${
-          locked
-            ? 'text-txt-tertiary/50 cursor-not-allowed'
-            : isActive
-              ? 'bg-surface-elevated text-txt-primary'
-              : 'text-txt-tertiary hover:text-txt-secondary hover:bg-interactive-hover'
-        }`}
-        title={locked ? t('connectLocked') : undefined}
-      >
-        {isActive && !locked && (
-          <div
-            className="absolute -left-[2px] top-1/2 -translate-y-1/2 w-[3px] bg-white rounded-r-full"
-            style={{ height: '55%', opacity: 0.7 }}
-          />
-        )}
-        {locked ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0 text-[#6e6e7a]/50">
-            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
-          </svg>
-        ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0 text-[#6e6e7a]">
-            <path d="M11 5L6 9H2V15H6L11 19V5ZM15.54 8.46C16.48 9.4 17 10.67 17 12S16.48 14.6 15.54 15.54L14.12 14.12C14.69 13.55 15 12.79 15 12S14.69 10.45 14.12 9.88L15.54 8.46ZM19.07 4.93C20.91 6.77 22 9.28 22 12C22 14.72 20.91 17.23 19.07 19.07L17.66 17.66C19.11 16.21 20 14.21 20 12C20 9.79 19.11 7.79 17.66 6.34L19.07 4.93Z" />
-          </svg>
-        )}
-        <span className="truncate text-[15px] font-medium flex-1 text-left">{channelName}</span>
-        <span className="relative flex flex-shrink-0 items-center">
-          {canManage && (
-            <svg
-              data-testid="voice-channel-settings"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              aria-hidden="true"
-              className="pointer-events-none absolute right-full mr-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 text-txt-tertiary hover:text-txt-primary transition-opacity"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSettingsClick?.();
-              }}
-            >
-              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+      <div className="relative group">
+        <button
+          onClick={onClick}
+          className={`relative w-full flex items-center gap-1.5 px-[10px] ${onOpenChat ? 'pr-9' : ''} h-8 rounded-[6px] group transition-colors ${
+            locked
+              ? 'text-txt-tertiary/50 cursor-not-allowed'
+              : isActive
+                ? 'bg-surface-elevated text-txt-primary'
+                : 'text-txt-tertiary hover:text-txt-secondary hover:bg-interactive-hover'
+          }`}
+          title={locked ? t('connectLocked') : undefined}
+        >
+          {isActive && !locked && (
+            <div
+              className="absolute -left-[2px] top-1/2 -translate-y-1/2 w-[3px] bg-white rounded-r-full"
+              style={{ height: '55%', opacity: 0.7 }}
+            />
+          )}
+          {locked ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0 text-[#6e6e7a]/50">
+              <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0 text-[#6e6e7a]">
+              <path d="M11 5L6 9H2V15H6L11 19V5ZM15.54 8.46C16.48 9.4 17 10.67 17 12S16.48 14.6 15.54 15.54L14.12 14.12C14.69 13.55 15 12.79 15 12S14.69 10.45 14.12 9.88L15.54 8.46ZM19.07 4.93C20.91 6.77 22 9.28 22 12C22 14.72 20.91 17.23 19.07 19.07L17.66 17.66C19.11 16.21 20 14.21 20 12C20 9.79 19.11 7.79 17.66 6.34L19.07 4.93Z" />
             </svg>
           )}
-          {voiceUsers.length > 0 && channelElapsedSeconds !== null && (
-            <VoiceChannelTimer observation={channelElapsedSeconds} />
-          )}
-        </span>
-      </button>
+          <span className="truncate text-[15px] font-medium flex-1 text-left">{channelName}</span>
+          <span className="relative flex flex-shrink-0 items-center">
+            {canManage && (
+              <svg
+                data-testid="voice-channel-settings"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+                className="pointer-events-none absolute right-full mr-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 text-txt-tertiary hover:text-txt-primary transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSettingsClick?.();
+                }}
+              >
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+              </svg>
+            )}
+            {voiceUsers.length > 0 && channelElapsedSeconds !== null && (
+              <VoiceChannelTimer observation={channelElapsedSeconds} />
+            )}
+          </span>
+        </button>
+        {onOpenChat && (
+          <button
+            type="button"
+            onClick={onOpenChat}
+            aria-label={t('chatPanel.openChannel', { channel: channelName })}
+            title={t('chatPanel.openChannel', { channel: channelName })}
+            className={`absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded text-txt-tertiary hover:text-txt-primary hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary transition-opacity ${
+              isActive || isChatOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+            } ${isChatOpen ? 'text-txt-primary bg-interactive-hover' : ''}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 3a9 9 0 0 0-9 9c0 1.68.46 3.25 1.26 4.6L3 21l4.4-1.26A9 9 0 1 0 12 3Z" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {isActive && isInVoiceRoom({ isLiveKitConnected, voiceConnectionStatus }) && (
         <VoiceChannelVibe channelId={channelId} topic={channelTopic} canManage={!!canManage} />

@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe('GIFs sent to chat', () => {
-  it('uses three-loop playback and preserves image menu actions on the frozen canvas', async () => {
+  it('preserves image actions and lets two hover cycles finish after leaving', async () => {
     const url = 'https://static.klipy.com/chat.gif';
     const { container } = render(<Message message={{ ...base, content: url }} isCompact={false} isFirstInGroup previousMessageId={null} />);
     const surface = container.querySelector<HTMLElement>('[data-image-source]')!;
@@ -54,9 +54,18 @@ describe('GIFs sent to chat', () => {
     fireEvent.contextMenu(surface.querySelector('canvas')!);
     expect(messageMenu.buildMessageMenuItems).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl: url }));
     fireEvent.mouseEnter(surface);
-    expect(play).toHaveBeenLastCalledWith(0);
+    expect(play).toHaveBeenLastCalledWith(2);
+    const count = play.mock.calls.length;
+    const paused = pause.mock.calls.length;
     fireEvent.mouseLeave(surface);
-    expect(pause).toHaveBeenCalled();
+    expect(pause).toHaveBeenCalledTimes(paused);
+    expect(surface).toHaveAttribute('data-animation-state', 'playing');
+    fireEvent.mouseEnter(surface);
+    expect(play).toHaveBeenCalledTimes(count);
+    act(() => vi.mocked(openImageAnimation).mock.calls.at(-1)![2].onFinish());
+    expect(surface).toHaveAttribute('data-animation-state', 'paused');
+    fireEvent.contextMenu(surface.querySelector('canvas')!);
+    expect(messageMenu.buildMessageMenuItems).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl: url }));
   });
 
   it('plays an uploaded GIF from its original file and retains sticker collection on its canvas', async () => {

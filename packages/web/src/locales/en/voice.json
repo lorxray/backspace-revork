@@ -23,7 +23,7 @@
     "urlLabel": "GIF or image link",
     "urlHint": "Paste a direct HTTPS link to a GIF or image.",
     "invalidUrl": "Enter a valid HTTPS image link.",
-    "imageFailed": "Could not load the image. Try another direct image link.",
+    "imageFailed": "Could not load the image. Click to retry.",
     "tooLong": "This link is too long to save with the channel's existing data. Try a shorter link.",
     "imageAlt": "Voice channel vibe",
     "preview": "Vibe preview",
@@ -42,6 +42,7 @@
     "unmuteFilm": "Unmute film"
   },
   "chatPanel": {
+    "openChannel": "Open chat for {{channel}}",
     "title": "Chat",
     "close": "Close Chat"
   },
@@ -200,6 +201,7 @@
     "summary": "{{bitrate}} · {{degradation}}"
   },
   "stream": {
+    "resetVolume": "Reset stream volume to 100%",
     "quality": "Stream Quality",
     "qualityValue": "{{height}}p {{fps}}fps",
     "volume": "Stream Volume",

@@ -2,7 +2,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useCinemaStore, type CinemaTarget } from '../../stores/cinemaStore';
-import { useVoiceStore } from '../../stores/voiceStore';
+import { MAX_STREAM_VOLUME, useVoiceStore } from '../../stores/voiceStore';
+import { useFormatters } from '../../i18n/formatters';
 import { useUIStore } from '../../stores/uiStore';
 import { usePointerReveal, VOICE_CHROME_ATTR } from '../../hooks/usePointerReveal';
 import { useStreamViewerQuality } from '../../hooks/useStreamViewerQuality';
@@ -29,6 +30,7 @@ function isolateBackground(root: HTMLElement): () => void {
 
 function CinemaPlayer({ target }: { target: CinemaTarget }) {
   const { t } = useTranslation('voice');
+  const f = useFormatters();
   const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   // Keep a stable portal parent: changing it during fullscreen would remount
@@ -140,11 +142,16 @@ function CinemaPlayer({ target }: { target: CinemaTarget }) {
           <div data-cinema-zoom />
           <button type="button" className={controlClass} aria-pressed={streamMuted}
             onClick={() => useVoiceStore.getState().setStreamMute(target.userId, !streamMuted)}>{t(streamMuted ? 'cinema.unmuteFilm' : 'cinema.muteFilm')}</button>
-          <label className="flex items-center gap-2 text-xs text-white/80">
-            <span>{t('cinema.filmVolume')}</span>
-            <input type="range" min="0" max="200" value={streamVolume} className="w-24 accent-accent-primary"
-              onChange={event => useVoiceStore.getState().setStreamVolume(target.userId, Number(event.target.value))} />
-          </label>
+          <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-white/80">
+              <span>{t('cinema.filmVolume')}</span>
+              <input type="range" min="0" max={MAX_STREAM_VOLUME} value={streamVolume} className="w-24 accent-accent-primary"
+                onChange={event => useVoiceStore.getState().setStreamVolume(target.userId, Number(event.target.value))} />
+            </label>
+            <span className="min-w-[3.5em] text-right text-xs text-white/80">{f.formatPercent(streamVolume)}</span>
+            <button type="button" className={controlClass} aria-label={t('stream.resetVolume')} title={t('stream.resetVolume')}
+              onClick={() => useVoiceStore.getState().setStreamVolume(target.userId, 100)}>{f.formatPercent(100)}</button>
+          </div>
           <label className="flex items-center gap-2 text-xs text-white/80">
             <span>{t('cinema.voiceVolume')}</span>
             <input type="range" min="0" max="200" value={voiceVolume} className="w-24 accent-accent-primary"

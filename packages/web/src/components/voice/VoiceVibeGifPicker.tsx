@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { GifResult } from '@backspace/shared';
 import { useTranslation } from 'react-i18next';
-import { fetchGifPage, peekGifPage } from '../../utils/gifSearchCache';
+import { fetchGifCategoryPreview, peekGifCategoryPreview } from '../../utils/gifCategoryCache';
 import { GifPicker } from '../chat/GifPicker';
 import { GifLoadError, gifLoadFailure, type GifLoadFailure } from '../chat/GifLoadError';
 import { AnimatedImage } from '../ui/AnimatedImage';
@@ -22,24 +22,37 @@ function VibeCategories({ onSelect }: { onSelect: (query: string) => void }) {
   const { t } = useTranslation('voice');
   const [failure, setFailure] = useState<GifLoadFailure | null>(null);
   const [retry, setRetry] = useState(0);
+  const active = useRef(false);
+  const repairing = useRef(new Set<string>());
   const [previews, setPreviews] = useState<Record<string, GifResult | undefined>>(() => Object.fromEntries(
-    CATEGORIES.map((category) => [category.id, peekGifPage(category.query)?.results[0]]),
+    CATEGORIES.map((category) => [category.id, peekGifCategoryPreview(category.query) ?? undefined]),
   ));
   useEffect(() => {
     let cancelled = false;
+    active.current = true;
     setFailure(null);
-    // Fetch the actual first result page once: its thumbnail fills the card,
-    // and opening the category reuses the same cached page without a new call.
+    // Cards outlive the short search cache; only missing or stale artwork
+    // needs a request. The initial fetch also warms the category result page.
     for (const category of CATEGORIES) {
-      void fetchGifPage(category.query, 30, '', { background: true }).then((page) => {
-        if (!page.results.length) throw new Error('Empty category preview');
-        if (!cancelled) setPreviews((current) => ({ ...current, [category.id]: page.results[0] }));
+      void fetchGifCategoryPreview(category.query).then((gif) => {
+        if (!cancelled) setPreviews((current) => ({ ...current, [category.id]: gif }));
       }).catch((error) => {
         if (!cancelled) setFailure((current) => current?.kind === 'rateLimit' ? current : gifLoadFailure(error));
       });
     }
-    return () => { cancelled = true; };
+    return () => { cancelled = true; active.current = false; };
   }, [retry]);
+  const repairPreview = (category: typeof CATEGORIES[number], broken: GifResult) => {
+    // Both the thumbnail and original have failed. Replace just this card once
+    // per open; another broken replacement must not make an API retry loop.
+    if (repairing.current.has(category.id)) return;
+    repairing.current.add(category.id);
+    void fetchGifCategoryPreview(category.query, broken).then((gif) => {
+      if (active.current) setPreviews((current) => ({ ...current, [category.id]: gif }));
+    }).catch((error) => {
+      if (active.current) setFailure((current) => current?.kind === 'rateLimit' ? current : gifLoadFailure(error));
+    });
+  };
   return (
     <>
     <div className="grid grid-cols-2 gap-2 p-1">
@@ -47,14 +60,14 @@ function VibeCategories({ onSelect }: { onSelect: (query: string) => void }) {
         const preview = previews[category.id];
         return (
         <button key={category.id} type="button" onClick={() => onSelect(category.query)} className="relative isolate flex aspect-video items-end justify-center overflow-hidden rounded-lg bg-surface-elevated p-3 text-center text-sm font-bold text-white hover:ring-2 hover:ring-accent-primary focus-visible:ring-2 focus-visible:ring-accent-primary">
-          {preview && <AnimatedImage src={preview.previewUrl} fallbackSrc={preview.url} alt="" className="absolute inset-0 -z-20 h-full w-full" />}
+          {preview && <AnimatedImage src={preview.previewUrl} fallbackSrc={preview.url} alt="" className="absolute inset-0 -z-20 h-full w-full" onError={() => repairPreview(category, preview)} />}
           <span className="absolute inset-0 -z-10 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
           {t(`vibe.categories.${category.id}`)}
         </button>
         );
       })}
     </div>
-    {failure && <GifLoadError failure={failure} onRetry={() => setRetry((value) => value + 1)} />}
+    {failure && <GifLoadError failure={failure} onRetry={() => { repairing.current.clear(); setRetry((value) => value + 1); }} />}
     </>
   );
 }

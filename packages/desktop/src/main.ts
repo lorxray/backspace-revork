@@ -82,6 +82,11 @@ import { createStreamDiagnosticLogger, STREAM_DIAGNOSTIC_PREFIX } from './stream
 // package name. Must run before any app.getPath('userData') consumer.
 app.setName('Backspace');
 
+// Prefer HTTPS over TCP on Windows. Some network/proxy paths leave QUIC
+// sessions pending instead of falling back, preventing GIF CDN downloads.
+// Chromium still negotiates HTTP/2 or HTTP/1.1 with the normal proxy settings.
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-quic');
+
 // Only a fixed, bundled AudioWorklet is served by this scheme. Its CSP
 // exemption lets the app add microphone processing to older instances without
 // changing their headers or granting the renderer any privileged APIs.
@@ -427,7 +432,8 @@ function createWindow(): void {
     minWidth: 940,
     minHeight: 500,
     title: 'Backspace',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    // Window/taskbar icons are separate from the EXE's embedded icon.
+    icon: path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     ...(process.platform !== 'darwin' ? {
       titleBarOverlay: {
@@ -447,6 +453,21 @@ function createWindow(): void {
       additionalArguments: bundledWebClient ? ['--backspace-bundled-web-client'] : [],
     },
   });
+
+  if (process.platform === 'win32') {
+    // Explorer's taskbar identity is separate from the window's WM_GETICON.
+    // A portable extracts process.execPath into a new temporary directory on
+    // every launch, so its taskbar icon and relaunch command must use the
+    // original portable file instead of that short-lived internal executable.
+    const launcher = getPortableExecutable() ?? process.execPath;
+    mainWindow.setAppDetails({
+      appId: 'com.backspace.desktop',
+      appIconPath: launcher,
+      appIconIndex: 0,
+      relaunchCommand: `"${launcher}"`,
+      relaunchDisplayName: 'Backspace',
+    });
+  }
 
   try {
     let diagnosticGpuInfo: unknown = null;

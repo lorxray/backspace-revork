@@ -41,6 +41,7 @@ const path = require('path');
 
 const { signMacAppIfUnsigned } = require('./macSign');
 const { verifyBundle } = require('./webClientBundle.cjs');
+const { verifyWindowIcons } = require('./windowIcons.cjs');
 
 /**
  * Strips host-compiled artifacts and foreign-platform prebuilts from the
@@ -159,6 +160,7 @@ exports.default = async function afterPack(context) {
 
   // Validate the actual copied resource tree, not only the staging directory.
   verifyBundle(path.join(appDir, 'web-client'));
+  verifyWindowIcons(path.join(appDir, 'app.asar'));
 
   cleanNativeModules(appDir, platform);
 

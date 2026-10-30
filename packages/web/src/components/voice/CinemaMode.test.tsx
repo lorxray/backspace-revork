@@ -190,6 +190,20 @@ describe('cinema viewing lifecycle', () => {
     expect(useVoiceStore.getState().isMuted).toBe(true);
   });
 
+  it('shows and resets up to 400% film volume while keeping the voice range at 200%', () => {
+    view(); enter();
+    const film = screen.getByRole('slider', { name: 'Film volume' });
+    expect(film).toHaveAttribute('max', '400');
+    expect(screen.getByRole('slider', { name: 'Voice volume' })).toHaveAttribute('max', '200');
+    fireEvent.change(film, { target: { value: '400' } });
+    expect(useVoiceStore.getState().streamVolumes.get('ada')).toBe(400);
+    expect(screen.getByText('400%')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset stream volume to 100%' }));
+    expect(film).toHaveValue('100');
+    expect(useVoiceStore.getState().streamVolumes.get('ada')).toBe(100);
+    expect(useCinemaStore.getState().voiceVolume).toBe(100);
+  });
+
   it.each(['unwatch', 'stop', 'disconnect', 'channel-change'])('closes when %s invalidates the watched stream', action => {
     view(); enter();
     act(() => {

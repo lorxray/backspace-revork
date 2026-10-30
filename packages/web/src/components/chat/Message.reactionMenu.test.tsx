@@ -294,3 +294,120 @@ describe('the "+" in the desktop hover bar', () => {
     expect(screen.queryByTestId('emoji-picker')).toBeNull();
   });
 });
+
+
+describe('message action menu and text selection', () => {
+  const actions = () => screen.queryAllByRole('button', { name: 'Message actions' });
+  const row = () => document.getElementById(`msg-${message.id}`)!;
+  const clearSelection = () => {
+    window.getSelection()?.removeAllRanges();
+    fireEvent(document, new Event('selectionchange'));
+  };
+
+  afterEach(() => { act(clearSelection); });
+
+  it('opens the complete existing menu from the compact button without a right click', () => {
+    renderMessage();
+    fireEvent.pointerDown(actions()[0]!, { button: 0 });
+    expect(actions()).toHaveLength(1);
+    fireEvent.click(actions()[0]!);
+    expect(screen.getByRole('button', { name: 'Copy Text' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '👍' }));
+    expect(sent('reaction_add')).toHaveLength(1);
+    expect(useContextMenuStore.getState().menu).toBeNull();
+  });
+
+  it('hides actions before dragging selects any characters and restores them on pointer release', () => {
+    renderMessage();
+    fireEvent.mouseEnter(row());
+    expect(screen.getByRole('button', { name: '👍' })).toBeTruthy();
+    fireEvent.pointerDown(screen.getByText('hello'), { button: 0 });
+    expect(actions()).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: '👍' })).toBeNull();
+    fireEvent.pointerUp(document.body, { button: 0 });
+    expect(actions()).toHaveLength(1);
+  });
+
+  it('keeps actions hidden across messages after a drag until the selection is cleared', () => {
+    const second = { ...message, id: 'm-2', content: 'another message' };
+    render(<>
+      <Message message={message} isCompact={false} isFirstInGroup previousMessageId={null} />
+      <Message message={second} isCompact={false} isFirstInGroup={false} previousMessageId={message.id} />
+    </>);
+    const start = screen.getByText('hello');
+    const end = screen.getByText('another message');
+    fireEvent.pointerDown(start, { button: 0 });
+    act(() => {
+      const range = document.createRange();
+      range.setStart(start.firstChild!, 0);
+      range.setEnd(end.firstChild!, end.textContent!.length);
+      window.getSelection()!.addRange(range);
+      fireEvent(document, new Event('selectionchange'));
+    });
+    fireEvent.pointerUp(end, { button: 0 });
+    expect(actions()).toHaveLength(0);
+    fireEvent.mouseEnter(document.getElementById('msg-m-2')!);
+    expect(screen.queryByRole('button', { name: '👍' })).toBeNull();
+    expect(window.getSelection()!.toString()).toContain('another message');
+    act(clearSelection);
+    expect(actions()).toHaveLength(2);
+  });
+
+  it('suppresses keyboard-created selections but leaves unrelated text selections alone', () => {
+    render(<>
+      <Message message={message} isCompact={false} isFirstInGroup previousMessageId={null} />
+      <p>outside text</p>
+    </>);
+    act(() => {
+      window.getSelection()!.selectAllChildren(screen.getByText('outside text'));
+      fireEvent(document, new Event('selectionchange'));
+    });
+    expect(actions()).toHaveLength(1);
+    act(() => {
+      window.getSelection()!.selectAllChildren(screen.getByText('hello'));
+      fireEvent(document, new Event('selectionchange'));
+    });
+    expect(actions()).toHaveLength(0);
+    act(clearSelection);
+    expect(actions()).toHaveLength(1);
+  });
+
+  it('hides actions when a selection encloses rows but both endpoints are outside them', () => {
+    render(<section data-testid="selection-host">
+      <p>before messages</p>
+      <Message message={message} isCompact={false} isFirstInGroup previousMessageId={null} />
+      <p>after messages</p>
+    </section>);
+    act(() => {
+      window.getSelection()!.selectAllChildren(screen.getByTestId('selection-host'));
+      fireEvent(document, new Event('selectionchange'));
+    });
+    expect(actions()).toHaveLength(0);
+    act(clearSelection);
+    expect(actions()).toHaveLength(1);
+  });
+
+  it('preserves the selected-text copy action on right click', () => {
+    renderMessage();
+    act(() => {
+      window.getSelection()!.selectAllChildren(screen.getByText('hello'));
+      fireEvent(document, new Event('selectionchange'));
+    });
+    openMenu();
+    const items = useContextMenuStore.getState().menu!.items;
+    expect(items.find(item => item.key === 'copy-selected')?.hidden).toBe(false);
+    const copy = items.find(item => item.key === 'copy-selected');
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      if (copy?.type !== 'action') throw new Error('Missing selected text copy action');
+      copy.onClick();
+      expect(writeText).toHaveBeenCalledWith('hello');
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+});

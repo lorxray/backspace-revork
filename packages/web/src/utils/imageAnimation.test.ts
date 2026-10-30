@@ -30,7 +30,7 @@ describe('controlled image playback', () => {
     await rejection;
     expect(draw).not.toHaveBeenCalled();
   });
-  it('plays exactly three cycles, releases frames, then replays without another media fetch', async () => {
+  it('plays three initial cycles and exactly two replay cycles without another media fetch', async () => {
     const finish = vi.fn();
     const player = await openImageAnimation('https://example.com/cat.gif', document.createElement('canvas'), { onPaint: () => {}, onFinish: finish, onError: vi.fn() }, new AbortController().signal);
     player.play(3);
@@ -38,9 +38,11 @@ describe('controlled image playback', () => {
     expect(draw).toHaveBeenCalledTimes(6);
     expect(closeFrame).toHaveBeenCalledTimes(6);
     expect(finish).toHaveBeenCalledTimes(1);
-    player.play(0);
-    await vi.advanceTimersByTimeAsync(60);
-    expect(draw.mock.calls.length).toBeGreaterThan(6);
+    player.play(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(draw).toHaveBeenCalledTimes(10);
+    expect(closeFrame).toHaveBeenCalledTimes(10);
+    expect(finish).toHaveBeenCalledTimes(2);
     expect(fetch).toHaveBeenCalledTimes(1);
     player.pause();
     const count = draw.mock.calls.length;

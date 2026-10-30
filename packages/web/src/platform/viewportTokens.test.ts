@@ -27,7 +27,7 @@ it('uses scaled tokens and a shared breakpoint in production styles', () => {
       .replace(/\/\/[^\n]*/g, '');
     source.split('\n').forEach((line, index) => {
       if (file.endsWith(join('styles', 'globals.css'))
-        && /^\s*--(?:app-vh|app-vw|app-dvh|safe-bottom|safe-top|keyboard-inset):/.test(line)) return;
+        && /^\s*--(?:app-vh|app-vw|app-dvh|safe-bottom|safe-top|keyboard-inset|titlebar-area-x|titlebar-area-width):/.test(line)) return;
       const isAuth = relative(root, file).startsWith(join('components', 'auth') + sep);
       if (rawViewport.test(line) || (!isAuth && rawBreakpoint.test(line))) {
         violations.push(`${relative(root, file)}:${index + 1}: ${line.trim()}`);

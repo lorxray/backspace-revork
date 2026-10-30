@@ -92,6 +92,7 @@ interface UIState {
   voiceFullscreen: boolean;
   pipCollapsed: boolean;
   toggleVoiceChat: () => void;
+  openVoiceChat: () => void;
   toggleVoiceFullscreen: () => void;
   setVoiceFullscreen: (fullscreen: boolean) => void;
   setPipCollapsed: (collapsed: boolean) => void;
@@ -198,6 +199,7 @@ export const useUIStore = create<UIState>()(
       voiceFullscreen: false,
       pipCollapsed: false,
       toggleVoiceChat: () => set((state) => ({ voiceChatOpen: !state.voiceChatOpen })),
+      openVoiceChat: () => set({ voiceChatOpen: true, voiceFullscreen: false }),
       toggleVoiceFullscreen: () => set((state) => ({ voiceFullscreen: !state.voiceFullscreen })),
       setVoiceFullscreen: (fullscreen) => set({ voiceFullscreen: fullscreen }),
       setPipCollapsed: (collapsed) => set({ pipCollapsed: collapsed }),

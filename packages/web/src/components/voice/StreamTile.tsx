@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFormatters } from '../../i18n/formatters';
 import { Avatar } from '../ui/Avatar';
-import { useVoiceStore } from '../../stores/voiceStore';
+import { MAX_STREAM_VOLUME, useVoiceStore } from '../../stores/voiceStore';
 import { useCinemaStore } from '../../stores/cinemaStore';
 import { enterCinemaMode } from '../../utils/cinemaMode';
 import { CinemaModeButton } from './CinemaModeButton';
@@ -104,8 +104,13 @@ function StreamVolumeItem({ userId }: { userId: string }) {
 
   return (
     <div className="p-3">
-      <div className="text-xs text-txt-tertiary mb-2 font-medium uppercase tracking-wider">
-        {t('voice:stream.volume')}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-xs text-txt-tertiary font-medium uppercase tracking-wider">{t('voice:stream.volume')}</span>
+        <button type="button" aria-label={t('voice:stream.resetVolume')} title={t('voice:stream.resetVolume')}
+          onClick={() => setStreamVolume(userId, 100)}
+          className="px-1.5 py-1 text-xs text-txt-secondary rounded hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary">
+          {f.formatPercent(100)}
+        </button>
       </div>
       <div className="flex items-center gap-2">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-txt-tertiary flex-shrink-0">
@@ -114,7 +119,8 @@ function StreamVolumeItem({ userId }: { userId: string }) {
         <input
           type="range"
           min="0"
-          max="200"
+          max={MAX_STREAM_VOLUME}
+          aria-label={t('voice:stream.volume')}
           value={streamVolume}
           onChange={(e) => setStreamVolume(userId, parseInt(e.target.value))}
           className="flex-1 min-w-0 accent-accent-primary h-1"

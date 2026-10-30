@@ -11,6 +11,7 @@
       "discard": "Verwerfen"
     },
     "actions": {
+      "openMenu": "Nachrichtenaktionen",
       "confirmDelete": "Löschen bestätigen"
     },
     "reply": {

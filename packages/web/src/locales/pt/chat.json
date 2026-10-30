@@ -11,6 +11,7 @@
       "discard": "Descartar"
     },
     "actions": {
+      "openMenu": "Ações da mensagem",
       "confirmDelete": "Confirmar exclusão"
     },
     "reply": {

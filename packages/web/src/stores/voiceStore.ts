@@ -7,6 +7,8 @@ import { useSpaceStore, getChannelOrigin, getMyUserIdForOrigin } from './spaceSt
 import { useAuthStore } from './authStore';
 import { isElectron } from '../platform/platform';
 
+export const MAX_STREAM_VOLUME = 400;
+
 export interface ScreenShareConfig {
   height: number | 'native';
   fps: number;
@@ -140,7 +142,7 @@ export interface VoiceState {
   participantMutes: Map<string, boolean>;
   setParticipantMute: (userId: string, muted: boolean) => void;
   // Stream widget state
-  streamVolumes: Map<string, number>;       // userId → 0-200 (100 default)
+  streamVolumes: Map<string, number>;       // userId → 0-400 (100 default)
   streamMutes: Map<string, boolean>;        // userId → muted?
   watchingStreams: Set<string>;             // userIds we're watching
   streamViewerQualities: Map<string, StreamViewerQualityChoice>; // LiveKit identity, session only
@@ -425,9 +427,12 @@ export const useVoiceStore = create<VoiceState>()(
       streamAttenuationStrength: 50,
 
       setStreamVolume: (userId, volume) => {
+        if (!Number.isFinite(volume)) return;
+        const boundedVolume = Math.max(0, Math.min(MAX_STREAM_VOLUME, volume));
         set((state) => {
+          if ((state.streamVolumes.get(userId) ?? 100) === boundedVolume) return state;
           const newMap = new Map(state.streamVolumes);
-          newMap.set(userId, volume);
+          newMap.set(userId, boundedVolume);
           return { streamVolumes: newMap };
         });
       },

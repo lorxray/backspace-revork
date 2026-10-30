@@ -45,6 +45,8 @@ export function ChannelSidebar() {
   const setCurrentChannel = useChatStore((s) => s.setCurrentChannel);
   const unreadChannels = useChatStore((s) => s.unreadChannels);
   const openModal = useUIStore((s) => s.openModal);
+  const openVoiceChat = useUIStore((s) => s.openVoiceChat);
+  const voiceChatOpen = useUIStore((s) => s.voiceChatOpen);
   const user = useAuthStore((s) => s.user);
   const members = useSpaceStore((s) => s.members);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
@@ -413,6 +415,11 @@ export function ChannelSidebar() {
     navigate(`/channels/${currentSpaceId || '@me'}/${channelId}`);
   };
 
+  const handleOpenChannelChat = (channelId: string) => {
+    openVoiceChat();
+    handleChannelClick(channelId);
+  };
+
   const handleHomeClick = () => {
     setCurrentChannel(null);
     navigate('/channels/@me');
@@ -667,6 +674,8 @@ export function ChannelSidebar() {
                     if (canConnect) handleVoiceJoin(channel.id);
                   }) : (() => handleChannelClick(channel.id))}
                   onSettingsClick={() => openModal('channelSettings', { channelId: channel.id })}
+                  onOpenChat={() => handleOpenChannelChat(channel.id)}
+                  isChatOpen={voiceChatOpen && currentChannelId === channel.id}
                   channelDragHandlers={channelHandlers(channel.id)}
                   voiceUserHandlers={voiceUserHandlers}
                   voiceChannelDropZone={voiceChannelDropZone(channel.id)}
@@ -781,6 +790,8 @@ export function ChannelSidebar() {
                         if (canConnect) handleVoiceJoin(channel.id);
                       }) : (() => handleChannelClick(channel.id))}
                       onSettingsClick={() => openModal('channelSettings', { channelId: channel.id })}
+                      onOpenChat={() => handleOpenChannelChat(channel.id)}
+                      isChatOpen={voiceChatOpen && currentChannelId === channel.id}
                       channelDragHandlers={channelHandlers(channel.id)}
                       voiceUserHandlers={voiceUserHandlers}
                       voiceChannelDropZone={voiceChannelDropZone(channel.id)}
@@ -1264,6 +1275,8 @@ function ChannelItem({
   isDragging,
   dropIndicator,
   onChannelClick,
+  onOpenChat,
+  isChatOpen,
   onSettingsClick,
   channelDragHandlers,
   voiceUserHandlers,
@@ -1277,6 +1290,8 @@ function ChannelItem({
   isDragging: boolean;
   dropIndicator: 'before' | 'after' | null;
   onChannelClick: () => void;
+  onOpenChat: () => void;
+  isChatOpen: boolean;
   onSettingsClick: () => void;
   channelDragHandlers: {
     draggable: boolean;
@@ -1318,6 +1333,8 @@ function ChannelItem({
           channelName={channel.name}
           channelTopic={channel.topic}
           onClick={() => canConnect && handleVoiceJoin(channel.id)}
+          onOpenChat={onOpenChat}
+          isChatOpen={isChatOpen}
           locked={!canConnect}
           canManage={canManage}
           onSettingsClick={onSettingsClick}

@@ -17,6 +17,9 @@ files:
   - dist/**/*
   - "!dist/web-client/**"
   - resources/**/*
+  # BrowserWindow reads these at runtime, including from app.asar.
+  - build/icon.ico
+  - build/icon.png
   # Exclude host-compiled native module artifacts from the asar.
   # electron-rebuild (postinstall) compiles uiohook-napi for the build machine,
   # creating build/Release/*.node. node-gyp-build checks build/ BEFORE prebuilds/,

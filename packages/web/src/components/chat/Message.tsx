@@ -41,6 +41,8 @@ import { useTransferStore } from '../../stores/transferStore';
 import { useMessageJump } from './messageJumpContext';
 import { ReactionPill } from './ReactionPill';
 import { memberNameColor } from '../../utils/memberGroups';
+import { useMessageActionSuppression } from '../../hooks/useMessageActionSuppression';
+import './Message.css';
 
 interface MessageProps {
   message: MessageWithUser | PendingMessageView;
@@ -151,6 +153,7 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
   const fmt = useFormatters();
   const [editContent, setEditContent] = useState(message.content ?? '');
   const [isHovered, setIsHovered] = useState(false);
+  const actionsSuppressed = useMessageActionSuppression();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // The reaction picker, and what opened it: the "+" of the hover bar, or the
   // message menu ('row'). On desktop it hangs off that button or the message
@@ -320,18 +323,11 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
     setReactionPicker(null);
   }, [addReaction, message.id]);
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (pending) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
+  const openMessageMenu = (target: HTMLElement, position: { x: number; y: number }) => {
+    if (pending) return;
     const selectedText = window.getSelection()?.toString() ?? '';
 
     // Detect if the right-click target is a content image (not an avatar or embed thumbnail)
-    const target = e.target as HTMLElement;
     const imgEl = target.closest<HTMLElement>('[data-image-source]') ?? target.closest<HTMLElement>('img');
     const isContentImage = imgEl && !imgEl.closest('[data-avatar]') && !imgEl.closest('[data-embed-thumbnail]');
     const imageUrl = isContentImage ? new URL(imgEl.dataset.imageSource ?? imgEl.getAttribute('src') ?? '', window.location.href).href : null;
@@ -343,8 +339,8 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
     // Detect right-click on a video/audio element and resolve its underlying attachment.
     // `message` is the persisted form here — pending messages return early above.
     const persistedAttachments = (message as MessageWithUser).attachments ?? [];
-    const videoEl = (e.target as HTMLElement).closest('video') as HTMLVideoElement | null;
-    const audioEl = (e.target as HTMLElement).closest('audio') as HTMLAudioElement | null;
+    const videoEl = target.closest('video') as HTMLVideoElement | null;
+    const audioEl = target.closest('audio') as HTMLAudioElement | null;
     const matchAttByUrl = (mediaSrc: string, kind: 'video' | 'audio') => {
       // currentSrc is absolute; attUrlOf may be relative — compare via URL parse.
       let mediaPath: string;
@@ -394,7 +390,13 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
     });
 
     if (items.length === 0) return;
-    useContextMenuStore.getState().open({ x: e.clientX, y: e.clientY }, items);
+    useContextMenuStore.getState().open(position, items);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openMessageMenu(e.target as HTMLElement, { x: e.clientX, y: e.clientY });
   };
 
   const handleEditSubmit = async (e: React.KeyboardEvent) => {
@@ -473,9 +475,10 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
     <div
       ref={rowRef}
       id={`msg-${message.id}`}
+      data-message-row
       role="article"
       aria-label={t('chat:message.rowLabel', { author: displayName, time: formatMessageTimestamp(t, fmt, message.createdAt) })}
-      className={`group relative flex gap-4 px-5 py-[3px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/60 ${isFirstInGroup || message.replyTo ? 'mt-[1.0625rem]' : ''} ${
+      className={`message-row group relative flex gap-4 px-5 py-[3px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/60 ${isFirstInGroup || message.replyTo ? 'mt-[1.0625rem]' : ''} ${
         isMentioned
           ? 'bg-accent-amber/10 border-l-2 border-l-accent-amber hover:bg-accent-amber/15'
           : 'hover:bg-[rgba(255,255,255,0.025)]'
@@ -752,9 +755,27 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
         />
       )}
 
+      {showInteractions && !isMobile && !isEditing && !actionsSuppressed && (
+        <button
+          type="button"
+          className="message-compact-actions absolute right-2 top-[3px] z-10 w-7 h-6 items-center justify-center rounded-md text-txt-tertiary hover:text-txt-primary hover:bg-interactive-hover opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:ring-2 focus-visible:ring-accent-primary"
+          title={t('chat:message.actions.openMenu')}
+          aria-label={t('chat:message.actions.openMenu')}
+          aria-haspopup="menu"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            openMessageMenu(rowRef.current!, { x: rect.right, y: rect.bottom });
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+          </svg>
+        </button>
+      )}
+
       {/* Action buttons on hover */}
-      {showInteractions && (isHovered || reactionPicker === 'button' || confirmingDelete) && !isEditing && (
-        <div className="absolute -top-[18px] right-4 flex items-center glass rounded-[10px] overflow-hidden z-10 h-8">
+      {showInteractions && !isMobile && !actionsSuppressed && (isHovered || reactionPicker === 'button' || confirmingDelete) && !isEditing && (
+        <div className="message-hover-actions absolute -top-[18px] right-4 flex items-center glass rounded-[10px] overflow-hidden z-10 h-8">
           {canAddReactions && (
             <div className="flex items-center px-1 border-r border-white/[0.06] h-full">
               {['👍', '❤️', '😂', '😮'].map(emoji => (
@@ -843,7 +864,7 @@ export function Message({ message, isCompact, isFirstInGroup, previousMessageId 
   );
 
   return (
-    <div data-context-menu onContextMenu={handleContextMenu}>
+    <div className="message-action-container" data-has-actions={showInteractions && !isMobile ? true : undefined} data-context-menu onContextMenu={handleContextMenu}>
       {content}
     </div>
   );

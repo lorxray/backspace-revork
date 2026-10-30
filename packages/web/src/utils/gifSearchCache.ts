@@ -71,10 +71,10 @@ export function peekGifPage(query: string, limit = 30, pos = ''): GifPage | null
   return entries().find((entry) => entry.key === key)?.page ?? null;
 }
 
-export function fetchGifPage(query: string, limit = 30, pos = '', options: { background?: boolean } = {}): Promise<GifPage> {
+export function fetchGifPage(query: string, limit = 30, pos = '', options: { background?: boolean; refresh?: boolean } = {}): Promise<GifPage> {
   const key = cacheKey(query, limit, pos);
   const cached = peekGifPage(query, limit, pos);
-  if (cached) return Promise.resolve(cached);
+  if (cached && !options.refresh) return Promise.resolve(cached);
   const existing = pending.get(key);
   if (existing) {
     const queued = queue.find((job) => job.key === key);

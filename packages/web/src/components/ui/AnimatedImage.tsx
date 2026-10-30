@@ -13,13 +13,14 @@ interface AnimatedImageProps {
   stickerSource?: string;
   onLoad?: () => void;
   onError?: () => void;
+  errorMessage?: string;
 }
 
 export function AnimatedImage(props: AnimatedImageProps) {
   return <ImageSurface key={props.src} {...props} />;
 }
 
-function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cover', onLoad, onError, onClick, stickerSource }: AnimatedImageProps) {
+function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cover', onLoad, onError, onClick, stickerSource, errorMessage }: AnimatedImageProps) {
   const { t } = useTranslation('chat');
   const [usingFallback, setUsingFallback] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -51,15 +52,16 @@ function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cov
     let player: ImageAnimation | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     let loaded = false;
-    let loadTimer: ReturnType<typeof setTimeout> | undefined;
-    const startLoadTimer = () => {
-      clearTimeout(loadTimer);
-      if (!loaded) loadTimer = setTimeout(() => imageError.current(), 15_000);
-    };
+    // A streaming GIF can already show frames before its load event fires.
+    // Let the browser finish or report a real network error; a wall-clock
+    // timeout would discard useful bytes and restart the same slow download.
     let initialized = false;
-    let hovering = false;
     let painted = false;
-    let autoplayFinished = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let inViewport = true;
+    // An interaction owns a finite run even after the pointer/focus leaves.
+    // Keeping the request while decoding also covers a brief hover before load.
+    let run: 'autoplay' | 'interaction' | null = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.hidden ? null : 'autoplay';
+    const canPlay = () => run !== null && inViewport && !document.hidden;
     const snapshot = () => {
       const source = image.current;
       if (!source?.naturalWidth) return false;
@@ -75,6 +77,7 @@ function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cov
       } catch { return false; }
     };
     const freeze = () => {
+      run = null;
       clearTimeout(fallbackTimer);
       player?.pause();
       if (!painted) snapshot();
@@ -84,72 +87,70 @@ function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cov
       if (controller.signal.aborted) return;
       player?.dispose();
       player = null;
+      painted = false;
       clearTimeout(fallbackTimer);
-      if (autoplayFinished && !hovering) { freeze(); return; }
+      if (!canPlay()) { freeze(); return; }
       setCanvasVisible(false);
       setMode('native');
       setPhase('playing');
-      if (!hovering) fallbackTimer = setTimeout(() => { autoplayFinished = true; freeze(); }, 8_000);
+      // Native images expose no loop boundary; allow a bounded continuation
+      // after hover rather than interrupting or looping forever.
+      fallbackTimer = setTimeout(freeze, 8_000);
     };
     load.current = () => {
-      clearTimeout(loadTimer);
       callbacks.current.onLoad?.();
       loaded = true;
       if (initialized) return;
       initialized = true;
       // Keep the loaded native image visible until a decoded frame is painted.
       // A slow/CORS-blocked decode must never leave a blank preview.
-      if (!autoplayFinished) fallbackTimer = setTimeout(() => { autoplayFinished = true; freeze(); }, 8_000);
-      else if (!hovering) freeze();
+      if (canPlay()) fallbackTimer = setTimeout(freeze, 8_000);
+      else freeze();
       if (!supportsImageAnimation()) {
-        if (!autoplayFinished || hovering) fallback();
-        else freeze();
+        fallback();
         return;
       }
       void openImageAnimation(mediaSrc, drawing, {
         onPaint: () => { if (!controller.signal.aborted) { painted = true; clearTimeout(fallbackTimer); setCanvasVisible(true); setMode('decoded'); setPhase('playing'); } },
-        onFinish: () => { autoplayFinished = true; if (!controller.signal.aborted) setPhase('paused'); },
+        onFinish: () => { run = null; if (!controller.signal.aborted) setPhase('paused'); },
         onError: fallback,
       }, controller.signal).then((opened) => {
         if (controller.signal.aborted) { opened.dispose(); return; }
         player = opened;
-        if (hovering || !autoplayFinished) player.play(hovering ? 0 : 3);
+        if (canPlay()) player.play(run === 'interaction' ? 2 : 3);
         else freeze();
-      }).catch(() => { if (!controller.signal.aborted) { if (hovering || !autoplayFinished) fallback(); else freeze(); } });
+      }).catch(() => { if (!controller.signal.aborted) fallback(); });
     };
     const enter = () => {
-      hovering = true;
-      autoplayFinished = true;
+      if (run === 'interaction' || !inViewport || document.hidden) return;
+      run = 'interaction';
       clearTimeout(fallbackTimer);
       if (!loaded) return;
-      if (player) player.play(0);
+      if (player) player.play(2);
       else fallback();
     };
-    const leave = () => { hovering = false; autoplayFinished = true; if (loaded) freeze(); };
-    const visibility = () => { if (document.hidden) leave(); };
+    const stop = () => { run = null; if (loaded) freeze(); };
+    const visibility = () => { if (document.hidden) stop(); };
     // Category/result buttons own the hover/focus, including their text overlay.
     const target = surface.closest('button') ?? surface;
     target.addEventListener('mouseenter', enter);
-    target.addEventListener('mouseleave', leave);
     target.addEventListener('focus', enter);
-    target.addEventListener('blur', leave);
     document.addEventListener('visibilitychange', visibility);
     const observer = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) startLoadTimer();
-      else { clearTimeout(loadTimer); if (loaded) leave(); }
+      inViewport = entries.some((entry) => entry.isIntersecting);
+      if (!inViewport) {
+        // An initially offscreen lazy image may still autoplay on first load.
+        if (loaded || run === 'interaction') stop();
+      }
     });
-    if (!observer) startLoadTimer();
     observer?.observe(surface);
     return () => {
       controller.abort();
-      clearTimeout(loadTimer);
       clearTimeout(fallbackTimer);
       player?.dispose();
       observer?.disconnect();
       target.removeEventListener('mouseenter', enter);
-      target.removeEventListener('mouseleave', leave);
       target.removeEventListener('focus', enter);
-      target.removeEventListener('blur', leave);
       document.removeEventListener('visibilitychange', visibility);
     };
   }, [mediaSrc, attempt]);
@@ -168,7 +169,7 @@ function ImageSurface({ src, fallbackSrc, alt, className = '', style, fit = 'cov
     }}>
       <img key={`${mediaSrc}:${attempt}`} ref={image} src={failed ? undefined : mediaSrc} alt={alt} hidden={canvasVisible || failed} style={{ display: canvasVisible || failed ? 'none' : undefined }} className={mediaClass} loading="lazy" draggable={false} referrerPolicy="no-referrer" onLoad={() => { setFailed(false); load.current(); }} onError={() => imageError.current()} />
       <canvas ref={canvas} hidden={!canvasVisible} style={{ display: canvasVisible ? undefined : 'none' }} className={mediaClass} role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={!canvasVisible || !alt} />
-      {failed && <span className="flex min-h-[80px] items-center justify-center bg-surface-elevated p-3 text-center text-xs text-txt-secondary">{t('gif.previewFailed')}</span>}
+      {failed && <span role="alert" className="flex min-h-[80px] items-center justify-center bg-surface-elevated p-3 text-center text-xs text-txt-secondary">{errorMessage ?? t('gif.previewFailed')}</span>}
     </span>
   );
 }

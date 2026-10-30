@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { installStreamZoom } from '../../../../desktop/src/streamZoom';
 import { StreamTile } from './StreamTile';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useContextMenuStore } from '../../stores/contextMenuStore';
 import type { StreamTile as StreamTileType } from '../../hooks/useLiveKit';
 
 vi.mock('../../audio/AudioManager', () => ({ AudioManager: { getInstance: () => ({ playSound: vi.fn() }) } }));
@@ -40,7 +41,8 @@ function tile(isLocal = false): StreamTileType {
 
 beforeEach(() => {
   setViewerQuality.mockClear();
-  useVoiceStore.setState({ watchingStreams: new Set(), connectionQualities: new Map() });
+  useVoiceStore.setState({ ...useVoiceStore.getInitialState(), watchingStreams: new Set(), connectionQualities: new Map() });
+  useContextMenuStore.getState().close();
 });
 
 describe('viewer quality with the injected desktop zoom', () => {
@@ -103,5 +105,27 @@ describe('StreamTile viewer quality entry point', () => {
     useVoiceStore.setState({ watchingStreams: new Set(['ada']) });
     render(<StreamTile tile={tile(true)} stats={null} />);
     expect(screen.queryByRole('button', { name: /Quality:/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('stream volume controls', () => {
+  it('boosts a remote stream to 400% and offers a keyboard-accessible reset to 100%', async () => {
+    const { container } = render(<StreamTile tile={tile()} stats={null} />);
+    fireEvent.contextMenu(container.querySelector('[data-context-menu]')!);
+    const item = useContextMenuStore.getState().menu?.items.find(entry => entry.key === 'stream-volume');
+    if (item?.type !== 'custom') throw new Error('Stream volume controls missing');
+    render(<>{item.render()}</>);
+    const slider = screen.getByRole('slider', { name: 'Stream Volume' });
+    expect(slider).toHaveAttribute('max', '400');
+    fireEvent.change(slider, { target: { value: '400' } });
+    expect(useVoiceStore.getState().streamVolumes.get('ada')).toBe(400);
+    expect(screen.getByText('400%')).toBeVisible();
+    const reset = screen.getByRole('button', { name: 'Reset stream volume to 100%' });
+    reset.focus();
+    expect(reset).toHaveFocus();
+    await userEvent.setup().keyboard('{Enter}');
+    expect(slider).toHaveValue('100');
+    expect(useVoiceStore.getState().streamVolumes.get('ada')).toBe(100);
+    act(() => useContextMenuStore.getState().close());
   });
 });

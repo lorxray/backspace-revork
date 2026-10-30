@@ -23,7 +23,7 @@
     "urlLabel": "Link do GIF ou da imagem",
     "urlHint": "Cole um link HTTPS direto para um GIF ou uma imagem.",
     "invalidUrl": "Insira um link HTTPS válido para uma imagem.",
-    "imageFailed": "Não foi possível carregar a imagem. Tente outro link direto para uma imagem.",
+    "imageFailed": "Não foi possível carregar a imagem. Clique para tentar novamente.",
     "tooLong": "Este link é longo demais para ser salvo com os dados existentes do canal. Tente um link mais curto.",
     "imageAlt": "Clima do canal de voz",
     "preview": "Prévia do clima",
@@ -42,6 +42,7 @@
     "unmuteFilm": "Ativar som do filme"
   },
   "chatPanel": {
+    "openChannel": "Abrir chat de {{channel}}",
     "title": "Chat",
     "close": "Fechar chat"
   },
@@ -200,6 +201,7 @@
     "summary": "{{bitrate}} · {{degradation}}"
   },
   "stream": {
+    "resetVolume": "Redefinir volume da transmissão para 100%",
     "quality": "Qualidade da transmissão",
     "qualityValue": "{{height}}p {{fps}}fps",
     "volume": "Volume da transmissão",

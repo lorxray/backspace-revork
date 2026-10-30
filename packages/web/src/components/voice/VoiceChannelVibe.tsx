@@ -34,7 +34,6 @@ export function VoiceChannelVibe({ channelId, topic, canManage }: VoiceChannelVi
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const removingRef = useRef(false);
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   const remove = async () => {
     if (!canManage || removingRef.current) return;
@@ -58,19 +57,13 @@ export function VoiceChannelVibe({ channelId, topic, canManage }: VoiceChannelVi
     <>
       {vibe ? (
         <div className="group/vibe relative ml-9 mr-2 mt-1 mb-1 overflow-hidden rounded-lg bg-surface-elevated" data-testid="voice-channel-vibe">
-          {failedUrl === vibe.url ? (
-            <div className="flex aspect-video items-center justify-center gap-2 px-3 text-xs text-txt-tertiary" role="status">
-              <ImageIcon />{t('vibe.imageFailed')}
-            </div>
-          ) : (
-            <AnimatedImage
-              src={vibe.url}
-              alt={t('vibe.imageAlt')}
-              className="aspect-video w-full object-contain"
-              fit="contain"
-              onError={() => setFailedUrl(vibe.url)}
-            />
-          )}
+          <AnimatedImage
+            src={vibe.url}
+            alt={t('vibe.imageAlt')}
+            className="aspect-video w-full object-contain"
+            fit="contain"
+            errorMessage={t('vibe.imageFailed')}
+          />
           {canManage && (
             <div className="absolute right-1 top-1 flex gap-0.5 rounded-md bg-black/65 p-0.5 desktop:opacity-0 desktop:group-hover/vibe:opacity-100 desktop:group-focus-within/vibe:opacity-100 transition-opacity">
               <button type="button" onClick={() => setEditing(true)} disabled={removing} title={t('vibe.change')} aria-label={t('vibe.change')} className="flex h-7 w-7 items-center justify-center rounded text-white/80 hover:bg-white/15 hover:text-white disabled:opacity-50">
@@ -164,8 +157,7 @@ function VoiceVibeEditor({ channelId, initialUrl, onClose }: { channelId: string
           </div>
           {previewUrl && (
             <div className="overflow-hidden rounded-lg bg-surface-elevated">
-              <AnimatedImage key={previewUrl} src={previewUrl} alt={t('voice:vibe.preview')} fit="contain" className={`max-h-44 w-full ${previewFailed ? 'hidden' : ''}`} onLoad={() => { setLoadedUrl(previewUrl); setFailedUrl(null); }} onError={() => setFailedUrl(previewUrl)} />
-              {previewFailed && <p className="p-4 text-sm text-txt-danger" role="alert">{t('voice:vibe.imageFailed')}</p>}
+              <AnimatedImage key={previewUrl} src={previewUrl} alt={t('voice:vibe.preview')} fit="contain" className="max-h-44 w-full" errorMessage={t('voice:vibe.imageFailed')} onLoad={() => { setLoadedUrl(previewUrl); setFailedUrl(null); }} onError={() => setFailedUrl(previewUrl)} />
             </div>
           )}
           {url.trim() && !previewUrl && <p className="text-sm text-txt-danger" role="alert">{t('voice:vibe.invalidUrl')}</p>}

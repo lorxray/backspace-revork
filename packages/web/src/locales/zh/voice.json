@@ -23,7 +23,7 @@
     "urlLabel": "GIF 或图片链接",
     "urlHint": "粘贴指向 GIF 或图片的 HTTPS 直链。",
     "invalidUrl": "请输入有效的 HTTPS 图片链接。",
-    "imageFailed": "无法加载图片。请尝试其他图片直链。",
+    "imageFailed": "图片加载失败。点击重试。",
     "tooLong": "此链接过长，无法与频道现有数据一起保存。请尝试更短的链接。",
     "imageAlt": "语音频道氛围",
     "preview": "氛围预览",
@@ -42,6 +42,7 @@
     "unmuteFilm": "取消影片静音"
   },
   "chatPanel": {
+    "openChannel": "打开 {{channel}} 的聊天",
     "title": "聊天",
     "close": "关闭聊天"
   },
@@ -200,6 +201,7 @@
     "summary": "{{bitrate}} · {{degradation}}"
   },
   "stream": {
+    "resetVolume": "将直播音量重置为 100%",
     "quality": "推流画质",
     "qualityValue": "{{height}}p {{fps}} 帧",
     "volume": "直播音量",

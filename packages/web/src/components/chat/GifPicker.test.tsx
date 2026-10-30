@@ -182,4 +182,45 @@ describe('GIF catalog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(api.gif.trending).toHaveBeenCalledTimes(3));
   });
+  it('restores category artwork immediately after the ordinary search cache expires or is cleared', async () => {
+    const picker = render(<VoiceVibeGifPicker onGifSelect={() => {}} />);
+    await waitFor(() => expect(api.gif.search).toHaveBeenCalledTimes(9));
+    await waitFor(() => expect(within(screen.getByRole('button', { name: 'Cats' })).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl));
+    picker.unmount();
+    vi.setSystemTime(Date.now() + 2 * 60 * 60_000);
+    localStorage.removeItem('backspace.gif-search-cache.v1');
+    render(<VoiceVibeGifPicker onGifSelect={() => {}} />);
+    expect(within(screen.getByRole('button', { name: 'Cats' })).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl);
+    await act(async () => {});
+    expect(api.gif.search).toHaveBeenCalledTimes(9);
+  });
+
+  it('keeps stale category artwork visible when the weekly background refresh fails', async () => {
+    const picker = render(<VoiceVibeGifPicker onGifSelect={() => {}} />);
+    await waitFor(() => expect(api.gif.search).toHaveBeenCalledTimes(9));
+    await waitFor(() => expect(within(screen.getByRole('button', { name: 'Cats' })).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl));
+    picker.unmount();
+    vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60_000);
+    vi.mocked(api.gif.search).mockRejectedValue(new Error('offline'));
+    render(<VoiceVibeGifPicker onGifSelect={() => {}} />);
+    expect(within(screen.getByRole('button', { name: 'Cats' })).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load GIFs');
+    await waitFor(() => expect(api.gif.search).toHaveBeenCalledTimes(18));
+    expect(within(screen.getByRole('button', { name: 'Cats' })).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl);
+  });
+
+  it('replaces a broken category preview without refetching the other category cards', async () => {
+    render(<VoiceVibeGifPicker onGifSelect={() => {}} />);
+    await waitFor(() => expect(api.gif.search).toHaveBeenCalledTimes(9));
+    const cats = screen.getByRole('button', { name: 'Cats' });
+    await waitFor(() => expect(within(cats).getByAltText('')).toHaveAttribute('src', gif('funny cats').previewUrl));
+    vi.mocked(api.gif.search).mockResolvedValue({ results: [gif('funny cats'), gif('working cats')], next: '' });
+    fireEvent.error(within(cats).getByAltText(''));
+    expect(within(cats).getByAltText('')).toHaveAttribute('src', gif('funny cats').url);
+    fireEvent.error(within(cats).getByAltText(''));
+    await waitFor(() => expect(within(cats).getByAltText('')).toHaveAttribute('src', gif('working cats').previewUrl));
+    expect(api.gif.search).toHaveBeenCalledTimes(10);
+    expect(api.gif.search).toHaveBeenLastCalledWith('funny cats', 30);
+  });
+
 });

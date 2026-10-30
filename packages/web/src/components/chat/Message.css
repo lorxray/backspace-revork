@@ -1,0 +1,24 @@
+/* Follow the message column width, including the call side panel. */
+.message-action-container {
+  container-name: message-actions;
+  container-type: inline-size;
+}
+
+.message-compact-actions {
+  display: none;
+}
+
+@container message-actions (max-width: 479px) {
+  .message-row > .message-hover-actions {
+    display: none;
+  }
+
+  .message-action-container[data-has-actions] > .message-row {
+    /* Reserve the menu gutter even at rest, so hover never reflows text. */
+    padding-right: 48px;
+  }
+
+  .message-compact-actions {
+    display: flex;
+  }
+}

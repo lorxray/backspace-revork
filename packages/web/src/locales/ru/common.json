@@ -1,4 +1,11 @@
 {
+  "navigation": {
+    "label": "Навигация",
+    "back": "Назад",
+    "forward": "Вперёд",
+    "backTooltip": "Назад (Alt+←)",
+    "forwardTooltip": "Вперёд (Alt+→)"
+  },
   "appName": "Backspace",
   "actions": {
     "save": "Сохранить",

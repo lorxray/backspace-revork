@@ -1,4 +1,11 @@
 {
+  "navigation": {
+    "label": "导航",
+    "back": "后退",
+    "forward": "前进",
+    "backTooltip": "后退 (Alt+←)",
+    "forwardTooltip": "前进 (Alt+→)"
+  },
   "appName": "Backspace",
   "actions": {
     "save": "保存",

@@ -114,6 +114,28 @@ describe('independent voice and stream audio output', () => {
     expect(gain('mic')).toBe(0);
   });
 
+  it('applies 400% stream gain with output volume, attenuation and mute without boosting the microphone', () => {
+    render(<GlobalAudioRenderer />);
+    const graph = audio.graphs.get('stream');
+    act(() => useVoiceStore.getState().setStreamVolume('sharer', 400));
+    expect(gain('stream')).toBeCloseTo(3.2);
+    expect(gain('mic')).toBeCloseTo(0.4);
+    act(() => useVoiceStore.setState({
+      streamAttenuationEnabled: true, streamAttenuationStrength: 50,
+      speakingParticipantIds: new Set(['sharer:Alice']),
+    }));
+    expect(gain('stream')).toBeCloseTo(1.6);
+    act(() => useVoiceStore.getState().setStreamMute('sharer', true));
+    expect(gain('stream')).toBe(0);
+    act(() => useVoiceStore.getState().setStreamVolume('sharer', 300));
+    expect(gain('stream')).toBe(0);
+    act(() => useVoiceStore.getState().setStreamMute('sharer', false));
+    expect(gain('stream')).toBeCloseTo(1.2);
+    act(() => useVoiceStore.getState().setOutputVolume(0));
+    expect(gain('stream')).toBe(0);
+    expect(audio.graphs.get('stream')).toBe(graph);
+  });
+
   it('keeps an individually muted participant separate from their stream', () => {
     render(<GlobalAudioRenderer />);
     act(() => useVoiceStore.getState().setParticipantMute('sharer', true));

@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   useSpaceStore.setState({ updateChannel: originalUpdate });
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 function setup(canManage = true, topic: string | null = null) {
@@ -56,6 +57,53 @@ function enterImage() {
 }
 
 describe('voice channel vibe', () => {
+  it('keeps a slow saved GIF mounted and lets a transient error recover automatically', async () => {
+    vi.useFakeTimers();
+    const update = setup(false, topicWithVoiceChannelVibe(null, GIF));
+    const img = screen.getByAltText('Voice channel vibe');
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(img).toHaveAttribute('src', GIF);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.error(img);
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load the image. Click to retry.');
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+    const retry = screen.getByAltText('Voice channel vibe');
+    expect(retry).toHaveAttribute('src', GIF);
+    fireEvent.load(retry);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('allows retrying a failed saved GIF without replacing its channel topic', async () => {
+    vi.useFakeTimers();
+    const update = setup(false, topicWithVoiceChannelVibe(null, GIF));
+    fireEvent.error(screen.getByAltText('Voice channel vibe'));
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+    fireEvent.error(screen.getByAltText('Voice channel vibe'));
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    fireEvent.click(screen.getByRole('alert'));
+    expect(screen.getByAltText('Voice channel vibe')).toHaveAttribute('src', GIF);
+    fireEvent.load(screen.getByAltText('Voice channel vibe'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('lets the editor preview recover on retry and enables saving only after a successful load', async () => {
+    vi.useFakeTimers();
+    const update = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Set the vibe' }));
+    fireEvent.change(screen.getByLabelText('GIF or image link'), { target: { value: GIF } });
+    fireEvent.error(screen.getByAltText('Vibe preview'));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await act(async () => vi.advanceTimersByTimeAsync(1_500));
+    expect(screen.getByAltText('Vibe preview')).toHaveAttribute('src', GIF);
+    expect(screen.getByAltText('Vibe preview')).toBeVisible();
+    fireEvent.load(screen.getByAltText('Vibe preview'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('renders the saved image without management controls for a channel participant', () => {
     setup(false, topicWithVoiceChannelVibe(null, GIF));
     expect(screen.getByAltText('Voice channel vibe')).toHaveAttribute('src', GIF);

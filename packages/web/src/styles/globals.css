@@ -40,6 +40,8 @@
   :root {
     --interface-scale: 1;
     --titlebar-inset: 0px;
+    --titlebar-area-x: calc(env(titlebar-area-x, 0px) / var(--interface-scale));
+    --titlebar-area-width: calc(env(titlebar-area-width, 100vw) / var(--interface-scale));
     --safe-bottom: calc(env(safe-area-inset-bottom, 0px) / var(--interface-scale));
     --safe-top: calc(env(safe-area-inset-top, 0px) / var(--interface-scale));
     --keyboard-inset: calc(env(keyboard-inset-height, 0px) / var(--interface-scale));

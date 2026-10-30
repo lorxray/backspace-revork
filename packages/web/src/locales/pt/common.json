@@ -1,4 +1,11 @@
 {
+  "navigation": {
+    "label": "Navegação",
+    "back": "Voltar",
+    "forward": "Avançar",
+    "backTooltip": "Voltar (Alt+←)",
+    "forwardTooltip": "Avançar (Alt+→)"
+  },
   "appName": "Backspace",
   "actions": {
     "save": "Salvar",

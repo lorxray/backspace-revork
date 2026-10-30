@@ -10,6 +10,7 @@ import { ScreenShareSetup } from './components/voice/ScreenShareSetup';
 import { CinemaMode } from './components/voice/CinemaMode';
 import { useAuthStore } from './stores/authStore';
 import { isElectron } from './platform/platform';
+import { DesktopTitleBar } from './components/layout/DesktopTitleBar';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -52,10 +53,7 @@ export function App() {
 
   return (
     <div className={`flex flex-col ${showTitleBar ? 'h-screen' : 'contents'}`}>
-      {showTitleBar && (
-        <div className="flex-shrink-0 bg-surface-base border-b border-border-hard titlebar-drag"
-          style={{ height: 'var(--titlebar-inset)', borderBottomWidth: 'calc(1px / var(--interface-scale))' }} />
-      )}
+      {showTitleBar && <DesktopTitleBar />}
       <div className={showTitleBar ? 'flex-1 min-h-0' : 'contents'}>
         <SwAutoUpdate />
         <TelemetryAsk />

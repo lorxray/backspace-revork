@@ -11,6 +11,7 @@
       "discard": "Discard"
     },
     "actions": {
+      "openMenu": "Message actions",
       "confirmDelete": "Confirm delete"
     },
     "reply": {
