@@ -665,7 +665,7 @@ export function ChannelSidebar() {
                   key={channel.id}
                   channel={channel}
                   isActive={currentChannelId === channel.id}
-                  isUnread={unreadChannels.has(channel.id) && currentChannelId !== channel.id}
+                  isUnread={unreadChannels.has(channel.id) && (channel.type === 'voice' || currentChannelId !== channel.id)}
                   isDragging={activeDrag?.type === 'channel' && activeDrag.dragId === channel.id}
                   dropIndicator={dropTarget?.targetId === channel.id ? dropTarget.position : null}
                   onChannelClick={channel.type === 'voice' ? (() => {
@@ -781,7 +781,7 @@ export function ChannelSidebar() {
                       key={channel.id}
                       channel={channel}
                       isActive={currentChannelId === channel.id}
-                      isUnread={unreadChannels.has(channel.id) && currentChannelId !== channel.id}
+                      isUnread={unreadChannels.has(channel.id) && (channel.type === 'voice' || currentChannelId !== channel.id)}
                       isDragging={activeDrag?.type === 'channel' && activeDrag.dragId === channel.id}
                       dropIndicator={dropTarget?.targetId === channel.id ? dropTarget.position : null}
                       onChannelClick={channel.type === 'voice' ? (() => {
@@ -1335,6 +1335,7 @@ function ChannelItem({
           onClick={() => canConnect && handleVoiceJoin(channel.id)}
           onOpenChat={onOpenChat}
           isChatOpen={isChatOpen}
+          isUnread={isUnread}
           locked={!canConnect}
           canManage={canManage}
           onSettingsClick={onSettingsClick}

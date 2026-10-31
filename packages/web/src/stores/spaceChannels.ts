@@ -63,8 +63,7 @@ export function putSpaceListings(
     for (const channel of space.channels) {
       index.set(channel.id, { spaceId: space.id, origin, type: channel.type });
       if (channel.myPermissions) permissions.set(channel.id, channel.myPermissions);
-      // Voice channels have no text to read; unread tracking skips them.
-      if (channel.type !== 'voice' && channel.lastMessageId) lastMessageIds.set(channel.id, channel.lastMessageId);
+      if (channel.lastMessageId) lastMessageIds.set(channel.id, channel.lastMessageId);
     }
   }
   return { index, permissions, lastMessageIds };

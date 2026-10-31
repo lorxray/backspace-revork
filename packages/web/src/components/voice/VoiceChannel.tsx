@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useId, useMemo } from 'react';
 import { isInVoiceRoom, useVoiceStore, type VoiceChannelElapsed } from '../../stores/voiceStore';
 import { useSpaceStore } from '../../stores/spaceStore';
 import { useSelfIdInChannel } from '../../utils/channelUser';
@@ -46,6 +46,7 @@ interface VoiceChannelProps {
   onClick: () => void;
   onOpenChat?: () => void;
   isChatOpen?: boolean;
+  isUnread?: boolean;
   locked?: boolean;
   canManage?: boolean;
   onSettingsClick?: () => void;
@@ -66,8 +67,9 @@ interface VoiceChannelProps {
 }
 
 /** Wrapper component for the volume slider so it can use hooks (useState). */
-export function VoiceChannel({ channelId, channelName, channelTopic = null, onClick, onOpenChat, isChatOpen = false, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
-  const { t } = useTranslation(['voice', 'common']);
+export function VoiceChannel({ channelId, channelName, channelTopic = null, onClick, onOpenChat, isChatOpen = false, isUnread = false, locked, canManage, onSettingsClick, voiceUserHandlers, dropZone }: VoiceChannelProps) {
+  const { t } = useTranslation(['voice', 'common', 'chat']);
+  const unreadDescriptionId = useId();
   const serverVoiceUsers = useVoiceStore((s) => s.voiceUsers.get(channelId)) ?? EMPTY_VOICE_USERS;
   const currentVoiceChannel = useVoiceStore((s) => s.currentVoiceChannelId);
   const participants = useVoiceStore((s) => s.participants);
@@ -155,15 +157,18 @@ export function VoiceChannel({ channelId, channelName, channelTopic = null, onCl
       onDrop={dropZone?.onDrop}
       className={dropZone?.isDragOver && dropZone?.isValidTarget ? 'rounded-[8px] ring-1 ring-accent-mint/40' : ''}
     >
-      <div className="relative group">
+      <div className={`relative group flex h-8 items-center rounded-[6px] transition-colors ${
+        isActive && !locked ? 'bg-surface-elevated' : 'hover:bg-interactive-hover'
+      }`}>
         <button
+          type="button"
           onClick={onClick}
-          className={`relative w-full flex items-center gap-1.5 px-[10px] ${onOpenChat ? 'pr-9' : ''} h-8 rounded-[6px] group transition-colors ${
+          className={`relative min-w-0 flex h-full flex-1 items-center gap-1.5 pl-[10px] pr-1 rounded-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary transition-colors ${
             locked
               ? 'text-txt-tertiary/50 cursor-not-allowed'
               : isActive
-                ? 'bg-surface-elevated text-txt-primary'
-                : 'text-txt-tertiary hover:text-txt-secondary hover:bg-interactive-hover'
+                ? 'text-txt-primary'
+                : 'text-txt-tertiary group-hover:text-txt-secondary'
           }`}
           title={locked ? t('connectLocked') : undefined}
         >
@@ -182,44 +187,51 @@ export function VoiceChannel({ channelId, channelName, channelTopic = null, onCl
               <path d="M11 5L6 9H2V15H6L11 19V5ZM15.54 8.46C16.48 9.4 17 10.67 17 12S16.48 14.6 15.54 15.54L14.12 14.12C14.69 13.55 15 12.79 15 12S14.69 10.45 14.12 9.88L15.54 8.46ZM19.07 4.93C20.91 6.77 22 9.28 22 12C22 14.72 20.91 17.23 19.07 19.07L17.66 17.66C19.11 16.21 20 14.21 20 12C20 9.79 19.11 7.79 17.66 6.34L19.07 4.93Z" />
             </svg>
           )}
-          <span className="truncate text-[15px] font-medium flex-1 text-left">{channelName}</span>
-          <span className="relative flex flex-shrink-0 items-center">
-            {canManage && (
-              <svg
-                data-testid="voice-channel-settings"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-                className="pointer-events-none absolute right-full mr-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 text-txt-tertiary hover:text-txt-primary transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSettingsClick?.();
-                }}
-              >
-                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
-              </svg>
-            )}
-            {voiceUsers.length > 0 && channelElapsedSeconds !== null && (
-              <VoiceChannelTimer observation={channelElapsedSeconds} />
-            )}
-          </span>
+          <span className="min-w-0 truncate text-[15px] font-medium flex-1 text-left">{channelName}</span>
+          {voiceUsers.length > 0 && channelElapsedSeconds !== null && (
+            <VoiceChannelTimer observation={channelElapsedSeconds} />
+          )}
         </button>
-        {onOpenChat && (
-          <button
-            type="button"
-            onClick={onOpenChat}
-            aria-label={t('chatPanel.openChannel', { channel: channelName })}
-            title={t('chatPanel.openChannel', { channel: channelName })}
-            className={`absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded text-txt-tertiary hover:text-txt-primary hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary transition-opacity ${
-              isActive || isChatOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
-            } ${isChatOpen ? 'text-txt-primary bg-interactive-hover' : ''}`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 3a9 9 0 0 0-9 9c0 1.68.46 3.25 1.26 4.6L3 21l4.4-1.26A9 9 0 1 0 12 3Z" />
-            </svg>
-          </button>
+        {(onOpenChat || canManage) && (
+          <div className="mr-1 flex flex-shrink-0 items-center gap-0.5" data-testid="voice-channel-actions">
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={onOpenChat}
+                aria-label={t('chatPanel.openChannel', { channel: channelName })}
+                aria-describedby={isUnread ? unreadDescriptionId : undefined}
+                aria-pressed={isChatOpen}
+                title={t('chatPanel.openChannel', { channel: channelName })}
+                className={`relative flex h-6 w-6 items-center justify-center rounded text-txt-tertiary hover:text-txt-primary hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary transition-opacity ${
+                  isActive || isChatOpen || isUnread ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+                } ${isChatOpen ? 'text-txt-primary bg-interactive-hover' : ''}`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 3a9 9 0 0 0-9 9c0 1.68.46 3.25 1.26 4.6L3 21l4.4-1.26A9 9 0 1 0 12 3Z" />
+                </svg>
+                {isUnread && (
+                  <>
+                    <span aria-hidden="true" data-testid="voice-channel-unread" className="pointer-events-none absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-accent-rose ring-2 ring-surface-channel" />
+                    <span id={unreadDescriptionId} className="sr-only">{t('chat:list.unread.divider')}</span>
+                  </>
+                )}
+              </button>
+            )}
+            {canManage && (
+              <button
+                type="button"
+                data-testid="voice-channel-settings"
+                onClick={onSettingsClick}
+                aria-label={t('common:labels.settings')}
+                title={t('common:labels.settings')}
+                className="flex h-6 w-6 items-center justify-center rounded text-txt-tertiary hover:text-txt-primary hover:bg-interactive-hover opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary transition-opacity"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
+                </svg>
+              </button>
+            )}
+          </div>
         )}
       </div>
 

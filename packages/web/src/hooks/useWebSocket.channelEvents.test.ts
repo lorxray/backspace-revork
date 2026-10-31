@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Channel, ChannelCategory, ServerEvent, User } from '@backspace/shared';
+import type { Channel, ChannelCategory, MessageWithUser, ServerEvent, User } from '@backspace/shared';
 
 // jsdom has no AudioWorkletNode; the handler's imports reach the voice stack.
 vi.mock('../audio/AudioManager', () => ({
@@ -45,6 +45,8 @@ vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:heartbeat
 const { connectInstance, disconnectInstance } = await import('./useWebSocket');
 const { useSpaceStore, getChannelOrigin } = await import('../stores/spaceStore');
 const { useAuthStore } = await import('../stores/authStore');
+const { useChatStore } = await import('../stores/chatStore');
+const { useUIStore } = await import('../stores/uiStore');
 
 const NOVA = 'https://nova.example';
 const SPACE = 'space-nova';
@@ -136,6 +138,8 @@ function socketFor(origin: string): FakeWebSocket {
 beforeEach(() => {
   FakeWebSocket.all = [];
   useSpaceStore.getState().reset();
+  useChatStore.getState().clearAllMessages();
+  useUIStore.setState({ voiceChatOpen: false, voiceFullscreen: false });
   useAuthStore.setState({ user: me('me'), trueHomeStatus: null });
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -155,6 +159,61 @@ function novaWithOtherSpaceOpen(channels: Channel[], categories: ChannelCategory
   useSpaceStore.setState({ currentSpaceId: OPEN_SPACE });
   return nova;
 }
+
+describe('voice channel chat unread state', () => {
+  function message(userId = 'other', type?: MessageWithUser['type']) {
+    return { type: 'message_created', message: {
+      id: '102', channelId: 'v1', userId, content: 'Hello', type, createdAt: 1,
+      replyToId: null, editedAt: null, user: me(userId), attachments: [], embeds: [], reactions: [],
+    } satisfies MessageWithUser };
+  }
+
+  it.each(['', NOVA])('tracks another channel and acknowledges reading on its own origin: %s', origin => {
+    const ws = socketFor(origin);
+    ws.deliver(ready([channel('v1', { type: 'voice' })]));
+    useChatStore.setState({ currentChannelId: 'c1' });
+    ws.deliver(message());
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(true);
+    useChatStore.getState().ackChannel('v1');
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(false);
+    expect(useChatStore.getState().readStates.get('v1')).toBe('102');
+  });
+
+  it.each([
+    { voiceChatOpen: false, voiceFullscreen: false },
+    { voiceChatOpen: true, voiceFullscreen: true },
+  ])('does not consider a selected voice channel read when its chat is hidden: %j', ui => {
+    const ws = novaWithOtherSpaceOpen([channel('v1', { type: 'voice' })]);
+    useChatStore.setState({ currentChannelId: 'v1' });
+    useUIStore.setState(ui);
+    ws.deliver(message());
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(true);
+  });
+
+  it('does not introduce an unread marker for a visible selected chat, self messages, or system events', () => {
+    const ws = novaWithOtherSpaceOpen([channel('v1', { type: 'voice' })]);
+    useChatStore.setState({ currentChannelId: 'v1' });
+    useUIStore.setState({ voiceChatOpen: true });
+    ws.deliver(message());
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(false);
+    useUIStore.setState({ voiceChatOpen: false });
+    ws.deliver(message('me-on-nova'));
+    ws.deliver(message('other', 'system'));
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(false);
+  });
+
+  it.each([null, 'v1'])('restores unread voice chat after reconnect, including the selected channel: %s', currentChannelId => {
+    const ws = socketFor(NOVA);
+    const snapshot = ready([channel('v1', { type: 'voice', lastMessageId: '102' })]);
+    ws.deliver({ ...snapshot, readStates: [{ channelId: 'v1', lastReadMessageId: '101' }] });
+    useChatStore.setState({ currentChannelId, unreadChannels: new Set() });
+    ws.deliver({ ...snapshot, readStates: [{ channelId: 'v1', lastReadMessageId: '101' }] });
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(true);
+    ws.deliver({ type: 'channel_ack', channelId: 'v1', messageId: '102' });
+    ws.deliver({ ...snapshot, readStates: [{ channelId: 'v1', lastReadMessageId: '102' }] });
+    expect(useChatStore.getState().unreadChannels.has('v1')).toBe(false);
+  });
+});
 
 describe('a channel that leaves and re-enters the view of a space that is not open', () => {
   it('routes to its instance again once channel_updated brings it back', () => {

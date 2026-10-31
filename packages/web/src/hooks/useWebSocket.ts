@@ -664,8 +664,11 @@ function handleEvent(origin: string, event: ServerEvent, readyAlreadyDelivered =
         const { currentChannelId, markChannelUnread } = useChatStore.getState();
         const { voiceChannelIds } = useSpaceStore.getState();
         const myId = isHome ? useAuthStore.getState().user?.id : getMyUserIdForOrigin(origin);
-        // Skip voice channels — they have no text reading/acking UI
-        if (event.message.type !== 'system' && event.message.channelId !== currentChannelId && event.message.userId !== myId && !voiceChannelIds.has(event.message.channelId)) {
+        // Selecting/joining a voice channel does not mean its chat is visible.
+        const { voiceChatOpen, voiceFullscreen } = useUIStore.getState();
+        const hiddenVoiceChat = voiceChannelIds.has(event.message.channelId) && (!voiceChatOpen || voiceFullscreen);
+        const needsReadAck = event.message.channelId !== currentChannelId || hiddenVoiceChat;
+        if (event.message.type !== 'system' && needsReadAck && event.message.userId !== myId) {
           markChannelUnread(event.message.channelId);
         }
       }

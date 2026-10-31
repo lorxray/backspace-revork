@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { VoiceChannel } from './VoiceChannel';
 import { useAuthStore } from '../../stores/authStore';
 import { useSpaceStore } from '../../stores/spaceStore';
@@ -177,7 +178,7 @@ describe('VoiceChannel occupancy timer', () => {
     expect(useVoiceStore.getState().voiceChannelElapsedSeconds.has('voice-1')).toBe(false);
   });
 
-  it('overlays channel settings without reserving space beside the timer', () => {
+  it('keeps the timer in the channel button and settings in a separate action group', () => {
     useVoiceStore.setState({
       voiceChannelElapsedSeconds: new Map([['voice-1', {
         elapsedSeconds: 0,
@@ -187,14 +188,10 @@ describe('VoiceChannel occupancy timer', () => {
 
     renderChannel(true);
 
-    expect(screen.getByTestId('voice-channel-timer')).not.toHaveClass('group-hover:opacity-0');
-    expect(screen.getByTestId('voice-channel-settings')).toHaveClass(
-      'absolute',
-      'right-full',
-      'mr-1',
-      'pointer-events-none',
-      'group-hover:pointer-events-auto',
-    );
+    const row = screen.getByRole('button', { name: 'Voice' });
+    expect(row).toContainElement(screen.getByTestId('voice-channel-timer'));
+    expect(row).not.toContainElement(screen.getByTestId('voice-channel-settings'));
+    expect(screen.getByTestId('voice-channel-actions')).toContainElement(screen.getByRole('button', { name: 'Settings' }));
   });
 
   it('opens channel settings without also activating the channel row', () => {
@@ -228,6 +225,40 @@ describe('VoiceChannel occupancy timer', () => {
 
     expect(screen.getByTestId('voice-channel-timer')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByRole('button', { name: 'Voice' })).toBeInTheDocument();
+  });
+});
+
+describe('VoiceChannel chat actions', () => {
+  it('orders chat before settings and keeps each action independent of joining', async () => {
+    const onClick = vi.fn();
+    const onOpenChat = vi.fn();
+    const onSettingsClick = vi.fn();
+    const keyboard = userEvent.setup();
+    render(<VoiceChannel channelId="voice-1" channelName="Voice" onClick={onClick} onOpenChat={onOpenChat} canManage onSettingsClick={onSettingsClick} />);
+
+    const actions = within(screen.getByTestId('voice-channel-actions')).getAllByRole('button');
+    expect(actions.map(button => button.getAttribute('aria-label'))).toEqual(['Open chat for Voice', 'Settings']);
+    actions[0].focus();
+    await keyboard.keyboard('{Enter}{Tab} ');
+    expect(onOpenChat).toHaveBeenCalledOnce();
+    expect(onSettingsClick).toHaveBeenCalledOnce();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('keeps unread chat discoverable without joining and clears its indicator after reading', () => {
+    useVoiceStore.setState({ currentVoiceChannelId: null });
+    const props = { channelId: 'voice-1', channelName: 'Voice', onClick: vi.fn(), onOpenChat: vi.fn() };
+    const { rerender } = render(<VoiceChannel {...props} isUnread />);
+    const chat = screen.getByRole('button', { name: 'Open chat for Voice' });
+    expect(chat).toHaveClass('opacity-100');
+    expect(chat).toHaveAccessibleDescription('New messages');
+    expect(chat).toContainElement(screen.getByTestId('voice-channel-unread'));
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+
+    rerender(<VoiceChannel {...props} isChatOpen />);
+    expect(chat).toHaveAttribute('aria-pressed', 'true');
+    expect(chat).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByTestId('voice-channel-unread')).not.toBeInTheDocument();
   });
 });
 

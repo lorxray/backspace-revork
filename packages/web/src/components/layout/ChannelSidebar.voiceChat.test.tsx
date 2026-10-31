@@ -58,7 +58,7 @@ beforeEach(() => {
     channelToSpaceMap: new Map([['voice-1', space.id], ['voice-2', space.id]]),
   });
   useAuthStore.setState({ user: null, myRowIds: new Map() });
-  useChatStore.setState({ currentChannelId: 'text-1' });
+  useChatStore.setState({ currentChannelId: 'text-1', unreadChannels: new Set(), readStates: new Map() });
   useUIStore.setState({ showDms: false, voiceChatOpen: false, voiceFullscreen: false });
   useVoiceStore.setState({
     currentVoiceChannelId: null, isLiveKitConnected: false, voiceConnectionStatus: 'disconnected',
@@ -67,6 +67,13 @@ beforeEach(() => {
 });
 
 describe('voice channel chat shortcut', () => {
+  it.each(['voice-1', 'voice-2'])('shows unread chat for selected voice channels, including categorized ones: %s', channelId => {
+    useChatStore.setState({ currentChannelId: channelId, unreadChannels: new Set([channelId]) });
+    renderSidebar();
+    expect(screen.getByTestId('voice-channel-unread')).toBeInTheDocument();
+    act(() => useChatStore.getState().onChannelAck(channelId, '100'));
+    expect(screen.queryByTestId('voice-channel-unread')).not.toBeInTheDocument();
+  });
   it('opens the selected channel chat without joining its call', () => {
     renderSidebar();
     fireEvent.click(screen.getByRole('button', { name: 'Open chat for Cube room' }));

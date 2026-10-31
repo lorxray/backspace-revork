@@ -10,6 +10,23 @@ Source files:
 
 ## Voice Channel Join Flow
 
+### Sidebar chat actions and unread indicator
+
+The channel row keeps its join button and occupancy timer separate from a
+right-aligned group of chat and channel-settings buttons. The settings button
+requires `MANAGE_CHANNELS`. Actions appear on hover or keyboard focus; touch
+interfaces keep them visible. The chat button also stays visible for the
+joined channel, an open chat, or unread messages. Unread chat adds a small dot
+and an accessible description to that button.
+
+Opening chat does not join a call or switch the user's existing call. Voice
+channel messages participate in the same per-origin read-state tracking as
+text channels, including `ready` snapshots after reconnect. Selecting or
+joining a voice channel with its chat closed (or hidden by fullscreen voice)
+does not mark chat read. The mounted `MessageList` acknowledges reading when
+it reaches the newest messages. Self-authored and system messages do not
+introduce unread indicators.
+
 ### Channel vibe (client-only image card)
 
 The sidebar's `VoiceChannelVibe` displays a shared GIF/image above a voice

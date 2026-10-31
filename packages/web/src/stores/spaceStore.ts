@@ -348,7 +348,7 @@ interface SpaceState {
   channelPermissions: ReadonlyMap<string, string>;
   /** Derived: channelId → instance origin ('' = home), space channels and pinned DM copies. */
   channelOriginMap: ReadonlyMap<string, string>;
-  /** Derived: the voice channels (excluded from unread). */
+  /** Derived: the voice channels, whose text chat can be closed while the channel is selected. */
   voiceChannelIds: ReadonlySet<string>;
   categoryOriginMap: ReadonlyMap<string, string>; // categoryId → instance origin ('' = home)
   /**

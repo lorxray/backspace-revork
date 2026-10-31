@@ -1151,7 +1151,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     //    Keep existing unread entries from other origins untouched,
     //    but prune orphans that don't map to any known channel
     const currentChannelId = get().currentChannelId;
-    const { channelToSpaceMap, dmChannels: knownDms } = useSpaceStore.getState();
+    const { channelToSpaceMap, voiceChannelIds, dmChannels: knownDms } = useSpaceStore.getState();
+    const { voiceChatOpen, voiceFullscreen } = useUIStore.getState();
     const knownDmIds = new Set(knownDms.map(dm => dm.id));
     const unread = new Set<string>();
     for (const id of get().unreadChannels) {
@@ -1165,7 +1166,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const channelsToCheck = originChannelIds ?? new Set(channelLastMessageIds.keys());
     for (const channelId of channelsToCheck) {
-      if (channelId === currentChannelId) continue; // skip current channel (acked momentarily)
+      // A selected voice channel may have its text chat closed or fullscreen.
+      // Only the mounted MessageList can acknowledge reading that chat.
+      const hiddenVoiceChat = voiceChannelIds.has(channelId) && (!voiceChatOpen || voiceFullscreen);
+      if (channelId === currentChannelId && !hiddenVoiceChat) continue;
       const lastMsgId = channelLastMessageIds.get(channelId);
       if (!lastMsgId) continue; // empty channel
       const lastRead = rsMap.get(channelId);
